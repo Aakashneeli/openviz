@@ -1,0 +1,226 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Deep Space Theme - Zinc & Indigo */
+    --background: 240 10% 3.9%;
+    /* zinc-950 */
+    --foreground: 0 0% 98%;
+
+    --card: 240 10% 7%;
+    /* zinc-900 */
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 7%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 262 83% 58%;
+    /* Indigo/Purple */
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 240 3.7% 15.9%;
+    /* zinc-800 */
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    /* zinc-300 */
+
+    --radius: 0.75rem;
+
+    /* Field badges */
+    --field-q: 217 91% 60%;
+    /* Blue */
+    --field-n: 25 95% 53%;
+    /* Orange */
+    --field-o: 270 95% 60%;
+    /* Purple */
+    --field-t: 142 71% 45%;
+    /* Green */
+  }
+
+  .dark {
+    /* Force dark mode */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --primary: 263 70% 50%;
+    /* Deep Purple */
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: 'Outfit', sans-serif;
+    background-image:
+      radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: 0 0, 16px 16px;
+    overflow: hidden;
+    /* Prevent body scroll, handle in layout */
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+
+  /* Glassmorphism */
+  .glass-panel {
+    background: rgba(18, 18, 20, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .glass-card {
+    background: linear-gradient(145deg, rgba(39, 39, 42, 0.4) 0%, rgba(39, 39, 42, 0.1) 100%);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Field Pills */
+  .field-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background-color: rgba(39, 39, 42, 0.5);
+    /* zinc-800/50 */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: grab;
+    user-select: none;
+  }
+
+  .field-pill:hover {
+    background-color: rgba(63, 63, 70, 0.6);
+    /* zinc-700/60 */
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .field-pill:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+  }
+
+  .field-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  /* Drop Zones */
+  .drop-zone {
+    border-radius: 0.75rem;
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.02);
+    transition: all 0.3s ease;
+  }
+
+  .drop-zone.active {
+    border-color: hsl(var(--primary));
+    background-color: hsl(var(--primary) / 0.1);
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.15);
+  }
+
+  /* Shimmer Animation */
+  .shimmer {
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(255, 255, 255, 0) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  /* Utilities */
+  .text-shadow {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
