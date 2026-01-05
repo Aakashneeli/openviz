@@ -4,8 +4,10 @@
 
 import { useEffect, useRef, useMemo } from 'react';
 import embed from 'vega-embed';
-import { BarChart3, MousePointer2, Move, ZoomIn } from 'lucide-react';
-import { useVizStore, selectVegaSpec, selectDataset, selectEncodings } from '@/store/useVizStore';
+import { BarChart3, MousePointer2, Move, ZoomIn, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ChartSummaryCard } from '@/components/canvas/ChartSummaryCard';
+import { useVizStore, selectVegaSpec, selectDataset, selectEncodings, selectChartSummary, selectSummaryLoading } from '@/store/useVizStore';
 
 interface VizPreviewProps {
     minWidth?: number;
@@ -17,6 +19,9 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
     const vegaSpec = useVizStore(selectVegaSpec);
     const dataset = useVizStore(selectDataset);
     const encodings = useVizStore(selectEncodings);
+    const chartSummary = useVizStore(selectChartSummary);
+    const summaryLoading = useVizStore(selectSummaryLoading);
+    const { generateChartSummary } = useVizStore();
 
     // Calculate dynamic size based on data
     const chartSize = useMemo(() => {
@@ -170,6 +175,16 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                 <span className="text-[10px] text-muted-foreground font-mono bg-secondary/50 px-2 py-0.5 rounded">
                     {chartSize.width} × {chartSize.height}px
                 </span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={generateChartSummary}
+                    disabled={summaryLoading || encodings.length === 0}
+                    className="h-6 text-[10px] gap-1.5 bg-indigo-500/10 border-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-200 hover:border-indigo-500/40 transition-all shadow-[0_0_10px_rgba(99,102,241,0.1)] hover:shadow-[0_0_15px_rgba(99,102,241,0.2)]"
+                >
+                    <Sparkles className="h-3 w-3" />
+                    {summaryLoading ? 'Generating...' : 'Summarize'}
+                </Button>
             </div>
 
             {/* Scrollable chart container */}
@@ -182,6 +197,15 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                     className="inline-block relative z-0"
                     style={{ minWidth: chartSize.width, minHeight: chartSize.height }}
                 />
+
+                {/* Chart Summary Card */}
+                <div className="max-w-2xl mx-auto">
+                    <ChartSummaryCard
+                        summary={chartSummary}
+                        isLoading={summaryLoading}
+                        onGenerate={generateChartSummary}
+                    />
+                </div>
             </div>
         </div>
     );

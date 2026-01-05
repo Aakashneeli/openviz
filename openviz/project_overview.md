@@ -2,6 +2,8 @@
 
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
+> 
+> **Last Updated**: January 4, 2026
 
 ---
 
@@ -19,46 +21,107 @@
 ## 2. Technical Stack & Architecture
 
 ### High-Level Stack
-- **Framework**: [React 19](https://react.dev/) + [Vite](https://vitejs.dev/)
-- **Language**: [TypeScript 5.9](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS 4](https://tailwindcss.com/) + custom CSS variables.
-- **State Management**: [Zustand](https://github.com/pmndrs/zustand) (with DevTools).
-- **Visualization**: [Vega-Lite](https://vega.github.io/vega-lite/) + [React-Vega](https://github.com/vega/react-vega).
-- **AI/LLM**: [Groq SDK](https://console.groq.com/) (running Llama 3/4 models).
-- **Data Processing**: [Arquero](https://uwdata.github.io/arquero/) (fast dataframes) + [PapaParse](https://www.papaparse.com/).
-- **UI Primitives**: [Radix UI](https://www.radix-ui.com/) + [Lucide React](https://lucide.dev/).
-- **Drag & Drop**: [dnd-kit](https://dndkit.com/).
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **React** | 19.2.0 | UI Framework |
+| **TypeScript** | 5.9.3 | Type Safety |
+| **Vite** | 7.2.4 | Build Tool & Dev Server |
+| **Tailwind CSS** | 4.1.18 | Utility-First Styling |
+| **Zustand** | 5.0.9 | State Management (with DevTools) |
+| **Vega-Lite** | 6.4.1 | High-Level Chart Grammar |
+| **react-vega** | 8.0.0 | React Vega Integration |
+| **vega-embed** | 7.1.0 | Embedding & Interactivity |
+| **Groq SDK** | 0.37.0 | Ultra-fast AI Inference |
+| **Arquero** | 8.0.3 | Data Transformation & Querying |
+| **PapaParse** | 5.5.3 | CSV/TSV Parsing |
+| **date-fns** | 4.1.0 | Date Parsing & Formatting |
+| **@dnd-kit** | 6.3.1 | Drag-and-Drop System |
+| **Radix UI** | Various | Accessible UI Primitives |
+| **Lucide React** | 0.562.0 | Icon Library |
 
 ### Directory Structure
 ```
 src/
 ├── components/
-│   ├── ai/              # Chat interface, Insight cards
-│   ├── canvas/          # Main chart rendering area, Dashboard grid
-│   ├── data-shelf/      # Sidebar for field list, draggables
-│   ├── encoding-deck/   # Right sidebar for channel mapping (x, y, color...)
-│   ├── layout/          # App shell, MainLayout, Headers
-│   └── ui/              # Reusable atoms (Button, Input, Dialog) mechanism
-├── lib/                 # Third-party library configurations
+│   ├── ai/                    # Chat interface, Query bar
+│   │   ├── AIChat.tsx         # Conversational chat panel with Q&A support
+│   │   └── AIQueryBar.tsx     # Quick input bar for AI queries
+│   │
+│   ├── canvas/                # Main chart rendering area
+│   │   ├── Canvas.tsx         # Main container (Grid/Flex)
+│   │   ├── VizPreview.tsx     # Individual chart wrapper with embed
+│   │   ├── DashboardGrid.tsx  # Multi-chart dashboard layout manager
+│   │   └── CodeEditor.tsx     # Monaco JSON editor for Vega specs
+│   │
+│   ├── data-shelf/            # Left sidebar for field list
+│   │   ├── DataShelf.tsx      # Field list container
+│   │   ├── DraggableField.tsx # Draggable field pill component
+│   │   └── Sparkline.tsx      # Inline data distribution preview
+│   │
+│   ├── encoding-deck/         # Right sidebar for channel mapping
+│   │   ├── EncodingDeck.tsx   # Encoding panel container
+│   │   └── EncodingShelf.tsx  # Drop zone for encoding channels
+│   │
+│   ├── layout/                # App shell and structure
+│   │   ├── AppLayout.tsx      # Main layout with sidebars and canvas
+│   │   └── TopBar.tsx         # Header with history controls, export
+│   │
+│   └── ui/                    # Reusable UI components (11 primitives)
+│       ├── badge.tsx
+│       ├── button.tsx
+│       ├── card.tsx
+│       ├── dialog.tsx
+│       ├── dropdown-menu.tsx
+│       ├── input.tsx
+│       ├── label.tsx
+│       ├── scroll-area.tsx
+│       ├── separator.tsx
+│       ├── tabs.tsx
+│       └── tooltip.tsx
+│
 ├── services/
-│   ├── dataContextService.ts  # Statistical profiling for AI context
-│   └── groqService.ts         # LLM communication layer
+│   ├── dataContextService.ts  # Statistical profiling, query execution
+│   └── groqService.ts         # LLM communication layer (1082 lines)
+│
 ├── store/
-│   └── useVizStore.ts   # CENTRAL BRAIN: Manages dataset, charts, and UI state
+│   └── useVizStore.ts         # CENTRAL BRAIN: Zustand store (784 lines)
+│
+├── types/
+│   └── index.ts               # Complete TypeScript type definitions
+│
 ├── utils/
-│   ├── autoChart.ts         # Heuristics for default charts
-│   ├── schemaInference.ts   # Type detection (Quantitative vs Nominal)
-│   └── vegaSpecBuilder.ts   # Compiles store state -> Vega-Lite JSON
-└── App.tsx              # Root component
+│   ├── autoChart.ts           # Heuristics for default chart selection
+│   ├── schemaInference.ts     # Type detection (Quantitative vs Nominal)
+│   └── vegaSpecBuilder.ts     # Compiles store state -> Vega-Lite JSON
+│
+├── hooks/                     # Custom React hooks (reserved)
+├── lib/
+│   └── utils.ts               # Utility functions (cn, etc.)
+│
+├── App.tsx                    # Root component
+├── App.css                    # Global app styles
+├── index.css                  # Base Tailwind styles
+└── main.tsx                   # Entry point
 ```
 
 ### State Management (`useVizStore.ts`)
-The entire application state is centralized in a single Zustand store. This enables features like global Undo/Redo and seamless serialization.
-- **Data Slice**: Raw data (`dataset`), inferred schema (`fields`), and upload status.
+The entire application state is centralized in a single Zustand store with DevTools integration. This enables features like global Undo/Redo and seamless serialization.
+
+**State Slices:**
+- **Data Slice**: Raw data (`dataset`), inferred schema (`fields`), `uploadStatus`, and `dataProfile`.
 - **Encoding Slice**: Array of `ShelfPlacement` objects mapping `Field -> Channel`.
-- **Chart Slice**: High-level config (mark type, title, sorting).
-- **AI Slice**: Chat history, generated insights, and suggestion state.
-- **UI Slice**: Sidebar toggles, active view modes.
+- **Chart Slice**: High-level config (`chartConfig`), generated `vegaSpec`, mark type, title.
+- **Dashboard Slice**: `dashboardConfig` for multi-chart layouts, `viewMode` (single/dashboard).
+- **AI Slice**: `aiQuery`, `aiLoading`, `aiSuggestions`, `aiInsights`, `aiChatHistory`.
+- **UI Slice**: `canvasView`, `leftSidebarOpen`, `rightSidebarOpen`, `selectedFieldId`, `isDragging`.
+- **History Slice**: `past` and `future` arrays for undo/redo functionality.
+
+**Key Actions:**
+- `loadDataFromFile(file)` - Parse and profile uploaded data
+- `addToShelf(field, channel)` - Map field to encoding channel
+- `processAIQuery(query)` - Process natural language with intent detection
+- `undo()` / `redo()` - History navigation
+- `setViewMode('single' | 'dashboard')` - Toggle between views
 
 ---
 
@@ -73,43 +136,87 @@ The entire application state is centralized in a single Zustand store. This enab
    - `temporal` (Dates)
    - `ordinal` (Ranked data)
 4. **Profiling**: `dataContextService.ts` calculates stats (min, max, mean, unique values) using `Arquero`.
-5. **Store Update**: The processed dataset and schema are saved to `useVizStore`.
+5. **Store Update**: The processed dataset, schema, and `DataProfile` are saved to `useVizStore`.
 
 ### 3.2. Visual Encoding (The "Deck")
 Instead of writing code, users drag fields from the **Data Shelf** to the **Encoding Deck**.
 - **Logic**: When a field is dropped on the "X-Axis" zone, a `ShelfPlacement` is added to the store.
 - **Compilation**: `vegaSpecBuilder.ts` listens to store changes. It iterates through all active encodings and constructs a valid Vega-Lite JSON specification.
-- **Rendering**: The JSON is passed to `<VegaLite />` which renders the SVG/Canvas interactions.
+- **Rendering**: The JSON is passed to `vega-embed` which renders the SVG/Canvas interactions.
 
 ---
 
 ## 4. AI Features Architecture
 
-OpenViz uses a **Context-Aware RAG** (Retrieval-Augmented Generation) approach, but optimized for small data contexts without a vector DB.
+OpenViz uses a **Context-Aware RAG** (Retrieval-Augmented Generation) approach, optimized for small data contexts without a vector DB.
 
 ### 4.1. The AI Service (`groqService.ts`)
 We use **Groq** for ultra-low latency inference, crucial for the "real-time" feel.
-- **Model**: Custom Llama-based models (e.g., `llama-4-maverick`).
-- **Input**: User query + **Data Context**.
-- **Output**: JSON-structured response handling both text answers and chart specifications.
 
-### 4.2. Context Injection Strategy
+**Configuration:**
+- **Model**: Llama 4 Maverick 17B (`meta-llama/llama-4-maverick-17b-128e-instruct`)
+- **API Key**: `VITE_GROQ_API_KEY` (environment variable)
+
+**Core Functions:**
+| Function | Purpose |
+|----------|---------|
+| `detectIntent(query, hasCurrentChart, hasDashboard, dataContext)` | LLM-based intent classification |
+| `processAIQuery(query, dataProfile, fields, data, encodings, history, dashboard, mark)` | Main entry point for all AI queries |
+| `processDataQuestion(query, dataProfile, fields, data, history)` | Q&A with Arquero for 100% accuracy |
+| `processChartRequest(query, dataProfile, fields, history)` | Single chart generation |
+| `processModifyRequest(query, fields, encodings, mark, history)` | Modify current chart contextually |
+| `processDashboardRequest(query, dataProfile, fields)` | Multi-chart dashboard generation |
+| `processModifyDashboardRequest(query, dataProfile, fields, dashboard, history)` | Add/remove charts from dashboard |
+| `processExplainRequest(query, dataProfile, fields, data)` | "Why?" questions with analysis |
+| `generateDataInsights(data, fields)` | Heuristic + AI insight generation |
+| `generateChartSummary(chartConfig, dataProfile, data)` | **NEW** Generate AI summary for a chart |
+| `generateDashboardSummary(dashboardConfig, dataProfile, data)` | **NEW** Generate AI summary for dashboard |
+
+### 4.2. Intent Classification
+The AI detects user intent to route queries appropriately:
+
+| Intent | Description | Example |
+|--------|-------------|---------|
+| `question` | Data Q&A (text answer) | "What is the average age?" |
+| `chart` | Create single chart | "Show sales by region" |
+| `dashboard` | Create multi-chart view | "Give me a sales overview dashboard" |
+| `modify` | Edit current chart | "Make it a line chart" |
+| `modify_dashboard` | Edit current dashboard | "Add a pie chart for categories" |
+| `explain` | Analysis request | "Why are sales down in March?" |
+| `unknown` | Fallback | General queries |
+
+### 4.3. Context Injection Strategy
 To make the AI "smart" about the user's specific file, we inject a high-density **Data Profile** into the system prompt:
 ```typescript
 {
-  "dataset_summary": "1000 rows, 5 columns",
-  "fields": [
-    { "name": "Revenue", "type": "quantitative", "stats": {"min": 100, "max": 5000} },
-    { "name": "Region", "type": "nominal", "unique_values": ["North", "South"] }
-  ]
+    "rowCount": 1000,
+    "columnCount": 5,
+    "fields": [
+        { 
+            "name": "Revenue", 
+            "type": "quantitative", 
+            "stats": { "min": 100, "max": 5000, "mean": 2500 } 
+        },
+        { 
+            "name": "Region", 
+            "type": "nominal", 
+            "uniqueCount": 4,
+            "topValues": [{"value": "North", "count": 400}] 
+        }
+    ],
+    "generatedAt": "2026-01-04T10:00:00Z"
 }
 ```
 *Note: We DO NOT send the entire dataset to the LLM to preserve privacy and token limits. We only send the metadata/statistics.*
 
-### 4.3. Capabilities
-1. **Intent Detection**: Decides if the user wants a simple answer ("Total revenue?") or a visualization ("Plot revenue by year").
-2. **Auto-Charting**: Generates a valid `ChartConfig` object which the app applies to the state, updating the UI instantly.
-3. **Insight Generation**: Heuristic + AI analysis to find outliers, trends, and correlations in the data.
+### 4.4. Data Context Service (`dataContextService.ts`)
+| Function | Purpose |
+|----------|---------|
+| `generateDataProfile(data, fields)` | Create comprehensive profile for AI |
+| `generateFieldProfile(field, table, data)` | Stats for individual field |
+| `detectDataIssues(fields, data)` | Find data quality problems |
+| `executeDataQuery(data, query)` | Run structured queries with Arquero |
+| `formatProfileForLLM(profile)` | Format profile as context string |
 
 ---
 
@@ -117,7 +224,7 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 
 ### 💻 Hybrid Editor
 - **Visual Mode**: Drag-and-drop builder for non-technical users.
-- **Code Mode**: Direct access to the generic JSON for power users (using Monaco Editor).
+- **Code Mode**: Direct access to the Vega-Lite JSON using Monaco Editor.
 - **AI Mode**: Conversational interface to manipulate the chart.
 
 ### 📊 Dashboard Engine
@@ -125,13 +232,47 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 - **Dashboard View**: CSS Grid-based layout engine allowing multiple charts to coexist. AI can generate full dashboards ("Give me a KPI summary") by creating multiple chart configurations at once.
 
 ### 🎨 Design System
-- **Theme**: "Cyber-Professional" Dark Mode (Zinc-900 backgrounds, Violet-500 accents).
+- **Theme**: "Deep Space" Dark Mode (Zinc-950 backgrounds, Indigo-500/Purple-500 accents).
 - **Components**: Built on headless Radix UI primitives for accessibility, styled with Tailwind.
-- **Motion**: Framer Motion used for layout transitions and shared-element effects (e.g., expanding a chart).
+- **Glassmorphism**: Sidebars use `bg-black/40 backdrop-blur-md` for depth.
+- **Motion**: Fluid transitions for layout shifts and chart updates.
+
+### ⚡ Auto-Chart & History
+- **Smart Defaults**: `autoChart.ts` selects appropriate chart types based on field types.
+- **Undo/Redo**: Every action pushes to history stack via Zustand middleware.
 
 ---
 
-## 6. Future Roadmap
+## 6. Type System Summary
+
+### Core Types (`types/index.ts` - 330 lines)
+```typescript
+// Field Classification
+type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
+
+// Encoding Channels
+type EncodingChannel = 'x' | 'y' | 'color' | 'size' | 'shape' | 'tooltip' | 'row' | 'column';
+
+// Chart Marks
+type MarkType = 'bar' | 'line' | 'point' | 'area' | 'arc' | 'rect' | 'rule' | 'text' | 'tick' | 'auto';
+
+// AI Intent Classification
+type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard' | 'explain' | 'unknown';
+
+// Key Interfaces
+interface FieldInfo { id, name, type, stats, sparklineData }
+interface Dataset { id, name, fields, rowCount, data, uploadedAt }
+interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
+interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor? }
+interface DashboardConfig { id, title?, charts, layout, createdAt }
+interface DataProfile { rowCount, columnCount, fields, summary?, cleaningSuggestions?, generatedAt }
+interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error? }
+interface AIMessage { id, role, content, timestamp, resultType? }
+```
+
+---
+
+## 7. Future Roadmap
 *(Derived from project enhancements log)*
 1. **Templates**: Pre-defined dashboard layouts for common use cases (Sales, SaaS Metrics).
 2. **Data Transformations**: Allowing the AI to create *new* calculated fields (e.g., `Profit = Sales - Cost`).
@@ -140,7 +281,37 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 
 ---
 
-## 7. How to Use This Document for Coding
+## 8. How to Use This Document for Coding
+
 - **When Fixing Bugs**: Check the *Architecture* section to see if the bug lies in the Store (Logic) or Component (UI).
 - **When Adding Features**: Follow the *Data Flow*. Ensure you update the `useVizStore` types, the Vega spec builder, and the UI components.
 - **When Improving AI**: Modify `groqService.ts` to adjust prompts or `dataContextService.ts` to provide richer statistical context.
+- **After Every Change**: Update this document to keep it accurate as the system memory.
+
+---
+
+## 9. Quick Reference
+
+### Environment Variables
+```env
+VITE_GROQ_API_KEY=your_groq_api_key_here
+VITE_AI_MODEL=meta-llama/llama-4-maverick-17b-128e-instruct
+```
+
+### Common Commands
+```bash
+npm run dev      # Start development server (localhost:5173)
+npm run build    # Build production bundle
+npm run preview  # Preview production build
+npm run lint     # Run ESLint
+```
+
+### File Size Reference
+| File | Lines | Purpose |
+|------|-------|---------|
+| `groqService.ts` | 1082 | AI/LLM integration |
+| `useVizStore.ts` | 784 | State management |
+| `types/index.ts` | 330 | Type definitions |
+| `dataContextService.ts` | 291 | Data profiling |
+| `AIChat.tsx` | 233 | Chat UI component |
+| `vegaSpecBuilder.ts` | ~200 | Vega spec generation |

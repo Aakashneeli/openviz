@@ -1,25 +1,15 @@
-// ============================================
-// EncodingShelf - DataViz Studio Drop Zone
-// ============================================
-
 import { useDroppable } from '@dnd-kit/core';
-import { X } from 'lucide-react';
+import { X } from 'lucide-react'; // Added icon for nested feel
 import { Button } from '@/components/ui/button';
 import { useVizStore, selectEncodingByChannel } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
-import type { EncodingChannel, FieldType } from '@/types';
+import type { EncodingChannel } from '@/types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface EncodingShelfProps {
     channel: EncodingChannel;
     label: string;
 }
-
-const typeConfig: Record<FieldType, { label: string; style: string }> = {
-    quantitative: { label: '#', style: 'bg-[hsl(var(--field-q))] shadow-[0_0_10px_hsl(var(--field-q)/0.4)]' },
-    nominal: { label: 'A', style: 'bg-[hsl(var(--field-n))] shadow-[0_0_10px_hsl(var(--field-n)/0.4)]' },
-    temporal: { label: 'T', style: 'bg-[hsl(var(--field-t))] shadow-[0_0_10px_hsl(var(--field-t)/0.4)]' },
-    ordinal: { label: 'O', style: 'bg-[hsl(var(--field-o))] shadow-[0_0_10px_hsl(var(--field-o)/0.4)]' },
-};
 
 export function EncodingShelf({ channel, label }: EncodingShelfProps) {
     const encoding = useVizStore(selectEncodingByChannel(channel));
@@ -27,80 +17,79 @@ export function EncodingShelf({ channel, label }: EncodingShelfProps) {
     const isDragging = useVizStore((s) => s.isDragging);
     const { isOver, setNodeRef } = useDroppable({ id: channel });
 
+    // Magnetic Animation Variants
+    const variants = {
+        idle: { scale: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.02)" },
+        dragging: { scale: 1, borderColor: "rgba(99,102,241,0.3)", backgroundColor: "rgba(99,102,241,0.05)" },
+        hover: { scale: 1.02, borderColor: "#818cf8", backgroundColor: "rgba(99,102,241,0.15)", boxShadow: "0 0 15px rgba(99,102,241,0.2)" },
+        filled: { scale: 1, borderColor: "transparent", backgroundColor: "rgba(255,255,255,0.05)" }
+    };
+
     return (
-        <div className="group/shelf">
-            <div className="flex items-center justify-between mb-1.5 px-0.5">
+        <div className="group/shelf flex items-start justify-between gap-2 py-1">
+            <div className="w-20 shrink-0 pt-2 flex items-center gap-1">
+                <div className={cn("w-1 h-1 rounded-full bg-muted-foreground/30 transition-colors", encoding && "bg-indigo-400 shadow-[0_0_5px_rgba(99,102,241,0.5)]")} />
                 <span className={cn(
-                    "text-[10px] font-bold uppercase tracking-wider transition-colors",
-                    encoding ? "text-foreground" : "text-muted-foreground",
-                    isOver && "text-primary"
+                    "text-[10px] font-medium transition-colors uppercase tracking-wider",
+                    isOver ? "text-indigo-300 font-bold" : "text-muted-foreground/60"
                 )}>
                     {label}
                 </span>
             </div>
 
-            <div
+            <motion.div
                 ref={setNodeRef}
+                initial="idle"
+                animate={encoding ? "filled" : isOver ? "hover" : isDragging ? "dragging" : "idle"}
+                variants={variants}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className={cn(
-                    "relative min-h-[44px] rounded-lg border transition-all duration-300 flex items-center px-3 overflow-hidden",
-                    // Empty state
-                    !encoding && "border-dashed border-border bg-card/10 hover:border-primary/30 hover:bg-primary/5",
-                    !encoding && isDragging && "border-primary/40 bg-primary/5 shadow-[0_0_15px_-5px_hsl(var(--primary)/0.3)]",
-                    !encoding && isOver && "border-primary bg-primary/10 shadow-[0_0_20px_hsl(var(--primary)/0.2)] scale-[1.02]",
-                    // Filled state
-                    encoding && "border-border bg-card/40 backdrop-blur-sm group-hover/shelf:border-border/80"
+                    "relative flex-1 min-h-[32px] rounded-lg border flex items-center px-3 overflow-hidden",
                 )}
             >
-                {!encoding ? (
-                    <span className={cn(
-                        "text-xs transition-colors duration-200",
-                        isDragging ? (isOver ? "text-primary font-medium" : "text-primary/70") : "text-muted-foreground/40 group-hover/shelf:text-muted-foreground/60"
-                    )}>
-                        {isDragging ? (isOver ? "Drop to encode" : "Drop here") : "Empty"}
-                    </span>
-                ) : (
-                    <div className="flex items-center w-full gap-3 group animate-in fade-in zoom-in-95 duration-200">
-                        {/* Field Badge */}
-                        <div className={cn(
-                            "flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold text-white shadow-sm ring-1 ring-white/10",
-                            typeConfig[encoding.field.type].style
-                        )}>
-                            {typeConfig[encoding.field.type].label}
-                        </div>
-
-                        {/* Field Name */}
-                        <div className="flex-1 flex flex-col min-w-0">
-                            <span className="text-sm font-medium text-foreground truncate leading-tight">
+                <AnimatePresence mode='wait'>
+                    {!encoding ? (
+                        <motion.span
+                            key="empty"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className={cn(
+                                "text-[10px] transition-colors truncate italic",
+                                isDragging ? (isOver ? "text-indigo-300" : "text-indigo-400/40") : "text-muted-foreground/20"
+                            )}
+                        >
+                            {isDragging ? (isOver ? "Drop to map" : "Drag here...") : "Empty"}
+                        </motion.span>
+                    ) : (
+                        <motion.div
+                            key="filled"
+                            initial={{ x: 10, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            className="flex items-center w-full gap-2 min-w-0"
+                        >
+                            <span className="flex-1 text-[11px] font-medium text-slate-200 truncate">
                                 {encoding.field.name}
                             </span>
-                            {/* Aggregation indicator if needed */}
+
                             {encoding.aggregate && (
-                                <span className="text-[9px] text-muted-foreground uppercase font-semibold">
+                                <span className="px-1.5 py-0.5 rounded-[4px] bg-indigo-500/20 text-[9px] text-indigo-300 uppercase font-bold tracking-wider border border-indigo-500/30">
                                     {encoding.aggregate}
                                 </span>
                             )}
-                        </div>
 
-                        {/* Remove Button */}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeFromShelf(channel)}
-                            className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 -mr-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0"
-                        >
-                            <X className="w-3.5 h-3.5" />
-                        </Button>
-                    </div>
-                )}
-
-                {/* Active Indicator Line */}
-                {encoding && (
-                    <div className={cn(
-                        "absolute left-0 top-0 bottom-0 w-1",
-                        typeConfig[encoding.field.type].style.split(' ')[0] // use bg color
-                    )} />
-                )}
-            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeFromShelf(channel)}
+                                className="h-4 w-4 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-full ml-1"
+                            >
+                                <X className="w-3 h-3" />
+                            </Button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </motion.div>
         </div>
     );
 }

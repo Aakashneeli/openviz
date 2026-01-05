@@ -10,9 +10,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory } from '@/store/useVizStore';
 import { isAIAvailable } from '@/services/groqService';
 import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export function AIChat() {
-    const [isOpen, setIsOpen] = useState(false);
+    // Use store state for visibility
+    const isOpen = useVizStore(state => state.aiChatOpen);
+    const { setAIChatOpen } = useVizStore();
     const [query, setQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -72,161 +75,161 @@ export function AIChat() {
         }
     };
 
-    // Floating button - Bottom Right
-    if (!isOpen) {
-        return (
-            <button
-                onClick={() => setIsOpen(true)}
-                style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}
-                className="flex items-center gap-3 px-5 py-3.5 rounded-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white font-semibold shadow-[0_8px_32px_rgba(124,58,237,0.4)] hover:shadow-[0_12px_40px_rgba(124,58,237,0.6)] transition-all duration-300 hover:scale-105 active:scale-95 border border-white/20"
-            >
-                <Sparkles className="w-5 h-5" />
-                <span>AI Assistant</span>
-            </button>
-        );
-    }
-
-    // Chat panel - Bottom Right, Solid Background
     return (
-        <div
-            style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}
-            className="w-[420px] h-[550px] bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden"
-        >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-gradient-to-r from-violet-600/10 to-fuchsia-600/10">
-                <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-lg shadow-violet-500/20">
-                        <Sparkles className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                        <span className="block text-sm font-semibold text-foreground leading-none mb-0.5">AI Assistant</span>
-                        <span className="text-[10px] text-muted-foreground">Ask questions or create charts</span>
-                    </div>
-                </div>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsOpen(false)}
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-white/5"
+        <AnimatePresence>
+            {!isOpen ? (
+                <motion.button
+                    layoutId="ai-chat-container"
+                    onClick={() => setAIChatOpen(true)}
+                    className="group relative flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 bg-[length:200%_auto] text-white font-medium shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-white/20 overflow-hidden hover:scale-105 active:scale-95 transition-all animate-gradient"
                 >
-                    <Minimize2 className="h-4 w-4" />
-                </Button>
-            </div>
-
-            {/* Status warnings */}
-            {!aiAvailable && (
-                <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 text-xs text-amber-500">
-                    <AlertCircle className="w-3 h-3" />
-                    API key not configured
-                </div>
-            )}
-            {aiAvailable && !hasData && (
-                <div className="px-4 py-2 bg-blue-500/10 border-b border-blue-500/20 flex items-center gap-2 text-xs text-blue-400">
-                    <AlertCircle className="w-3 h-3" />
-                    Upload data to use AI
-                </div>
-            )}
-
-            {/* Messages */}
-            <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-                {chatHistory.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center py-6">
-                        <div className="w-12 h-12 rounded-full bg-violet-500/10 flex items-center justify-center mb-3">
-                            <MessageSquare className="w-6 h-6 text-violet-400" />
+                    <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-1000 rotate-12 -skew-x-12 origin-bottom-left" />
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                    <span className="text-sm tracking-wide">Ask AI</span>
+                    <div className="absolute -bottom-1 -left-1 w-full h-full bg-indigo-500 blur-xl opacity-40 -z-10" />
+                </motion.button>
+            ) : (
+                <motion.div
+                    layoutId="ai-chat-container"
+                    className="w-[380px] h-[500px] bg-[#0A0A0B]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden ring-1 ring-white/5"
+                >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-gradient-to-r from-indigo-500/10 to-purple-500/10">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md">
+                                <Sparkles className="w-3.5 h-3.5 text-white" />
+                            </div>
+                            <div>
+                                <span className="block text-sm font-semibold text-slate-200 leading-none mb-0.5">OpenViz AI</span>
+                                <span className="text-[10px] text-indigo-400">Powered by LLaMA 3</span>
+                            </div>
                         </div>
-                        <p className="text-sm font-medium text-foreground mb-1">Ask questions or create charts</p>
-                        <p className="text-xs text-muted-foreground mb-6">I can answer data questions with 100% accuracy</p>
-                        <div className="w-full flex flex-col gap-1.5">
-                            {suggestions.map((s, i) => (
-                                <button
-                                    key={i}
-                                    onClick={() => setQuery(s.text)}
-                                    disabled={!canSubmit}
-                                    className="w-full text-left text-xs px-3 py-2.5 rounded-lg bg-white/5 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-white/10 hover:border-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 group"
-                                >
-                                    {s.type === 'question' && <HelpCircle className="w-3.5 h-3.5 text-blue-400 group-hover:text-blue-300" />}
-                                    {s.type === 'chart' && <BarChart3 className="w-3.5 h-3.5 text-emerald-400 group-hover:text-emerald-300" />}
-                                    {s.type === 'dashboard' && <LayoutDashboard className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300" />}
-                                    <span>{s.text}</span>
-                                </button>
-                            ))}
-                        </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setAIChatOpen(false)}
+                            className="h-6 w-6 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
+                        >
+                            <Minimize2 className="h-3.5 w-3.5" />
+                        </Button>
                     </div>
-                ) : (
-                    <div className="flex flex-col gap-3">
-                        {chatHistory.map((msg) => (
-                            <div
-                                key={msg.id}
-                                className={cn(
-                                    "flex",
-                                    msg.role === 'user' ? "justify-end" : "justify-start"
-                                )}
-                            >
-                                <div
-                                    className={cn(
-                                        "max-w-[85%] px-3.5 py-2.5 rounded-2xl text-[13px] leading-relaxed",
-                                        msg.role === 'user'
-                                            ? "bg-primary text-primary-foreground"
-                                            : msg.resultType === 'error'
-                                                ? "bg-destructive/10 text-destructive-foreground border border-destructive/20"
-                                                : "bg-muted/50 text-foreground border border-border/50",
-                                        msg.resultType === 'text' && "border-blue-500/30 bg-blue-500/5"
-                                    )}
-                                >
-                                    {msg.role === 'assistant' && msg.resultType && (
-                                        <div className={cn(
-                                            "flex items-center mb-1 text-[10px] uppercase font-bold tracking-wider",
-                                            msg.resultType === 'text' ? "text-blue-400" :
-                                                msg.resultType === 'chart' ? "text-emerald-400" :
-                                                    msg.resultType === 'dashboard' ? "text-amber-400" : "text-muted-foreground"
-                                        )}>
-                                            {getMessageIcon(msg.resultType)}
-                                            {msg.resultType === 'text' ? 'Answer' :
-                                                msg.resultType === 'chart' ? 'Chart Created' :
-                                                    msg.resultType === 'dashboard' ? 'Dashboard' : 'Response'}
-                                        </div>
-                                    )}
-                                    {msg.content}
+
+                    {/* Status warnings */}
+                    {!aiAvailable && (
+                        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 text-xs text-amber-500">
+                            <AlertCircle className="w-3 h-3" />
+                            API key not configured
+                        </div>
+                    )}
+                    {aiAvailable && !hasData && (
+                        <div className="px-4 py-2 bg-blue-500/10 border-b border-blue-500/20 flex items-center gap-2 text-xs text-blue-400">
+                            <AlertCircle className="w-3 h-3" />
+                            Upload data to use AI
+                        </div>
+                    )}
+
+                    {/* Messages */}
+                    <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+                        {chatHistory.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-center py-6">
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center mb-3 ring-1 ring-white/5">
+                                    <MessageSquare className="w-5 h-5 text-indigo-400" />
+                                </div>
+                                <p className="text-sm font-medium text-slate-200 mb-1">How can I help you visualize?</p>
+                                <p className="text-xs text-slate-500 mb-6 max-w-[200px]">I can generate charts, explain data, and build dashboards.</p>
+                                <div className="w-full flex flex-col gap-1.5">
+                                    {suggestions.map((s, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => setQuery(s.text)}
+                                            disabled={!canSubmit}
+                                            className="w-full text-left text-[11px] px-3 py-2 rounded-lg bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10 hover:border-white/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 group"
+                                        >
+                                            {s.type === 'question' && <HelpCircle className="w-3 h-3 text-indigo-400 group-hover:text-indigo-300" />}
+                                            {s.type === 'chart' && <BarChart3 className="w-3 h-3 text-emerald-400 group-hover:text-emerald-300" />}
+                                            {s.type === 'dashboard' && <LayoutDashboard className="w-3 h-3 text-amber-400 group-hover:text-amber-300" />}
+                                            <span>{s.text}</span>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                        ))}
-                        {aiLoading && (
-                            <div className="flex justify-start">
-                                <div className="bg-muted/50 px-3.5 py-2.5 rounded-2xl flex items-center gap-2 border border-border/50">
-                                    <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
-                                    <span className="text-xs text-muted-foreground">Analyzing...</span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </ScrollArea>
-
-            {/* Input */}
-            <form onSubmit={handleSubmit} className="p-3 border-t border-border/50 bg-muted/20">
-                <div className="flex gap-2">
-                    <Input
-                        ref={inputRef}
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={canSubmit ? "Ask a question or describe a chart..." : "Load data first..."}
-                        disabled={!canSubmit}
-                        className="flex-1 h-10 bg-background/50 border-input focus:border-primary/50 text-sm shadow-inner"
-                    />
-                    <Button
-                        type="submit"
-                        size="icon"
-                        disabled={!query.trim() || !canSubmit}
-                        className="h-10 w-10 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
-                    >
-                        {aiLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            <Send className="h-4 w-4" />
+                            <div className="flex flex-col gap-3">
+                                {chatHistory.map((msg) => (
+                                    <div
+                                        key={msg.id}
+                                        className={cn(
+                                            "flex animate-in fade-in slide-in-from-bottom-2 duration-300",
+                                            msg.role === 'user' ? "justify-end" : "justify-start"
+                                        )}
+                                    >
+                                        <div
+                                            className={cn(
+                                                "max-w-[85%] px-3.5 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm",
+                                                msg.role === 'user'
+                                                    ? "bg-indigo-600 text-white rounded-tr-sm"
+                                                    : msg.resultType === 'error'
+                                                        ? "bg-red-500/10 text-red-200 border border-red-500/20 rounded-tl-sm"
+                                                        : "bg-white/5 text-slate-200 border border-white/10 rounded-tl-sm",
+                                                msg.resultType === 'text' && "border-indigo-500/30 bg-indigo-500/5"
+                                            )}
+                                        >
+                                            {msg.role === 'assistant' && msg.resultType && (
+                                                <div className={cn(
+                                                    "flex items-center mb-1 text-[10px] uppercase font-bold tracking-wider",
+                                                    msg.resultType === 'text' ? "text-indigo-400" :
+                                                        msg.resultType === 'chart' ? "text-emerald-400" :
+                                                            msg.resultType === 'dashboard' ? "text-amber-400" : "text-slate-400"
+                                                )}>
+                                                    {getMessageIcon(msg.resultType)}
+                                                    {msg.resultType === 'text' ? 'Answer' :
+                                                        msg.resultType === 'chart' ? 'Chart Created' :
+                                                            msg.resultType === 'dashboard' ? 'Dashboard' : 'Response'}
+                                                </div>
+                                            )}
+                                            {msg.content}
+                                        </div>
+                                    </div>
+                                ))}
+                                {aiLoading && (
+                                    <div className="flex justify-start">
+                                        <div className="bg-white/5 px-3.5 py-2 rounded-2xl flex items-center gap-2 border border-white/5">
+                                            <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                                            <span className="text-xs text-slate-400">Thinking...</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )}
-                    </Button>
-                </div>
-            </form>
-        </div>
+                    </ScrollArea>
+
+                    {/* Input */}
+                    <form onSubmit={handleSubmit} className="p-3 border-t border-white/5 bg-black/20">
+                        <div className="flex gap-2 relative">
+                            <Input
+                                ref={inputRef}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder={canSubmit ? "Ask OpenViz..." : "Load data first..."}
+                                disabled={!canSubmit}
+                                className="flex-1 h-10 pl-4 pr-12 bg-white/5 border-white/10 focus:border-indigo-500/50 focus:bg-white/10 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl transition-all"
+                            />
+                            <Button
+                                type="submit"
+                                size="icon"
+                                disabled={!query.trim() || !canSubmit}
+                                className="absolute right-1 top-1 h-8 w-8 bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 rounded-lg transition-all disabled:opacity-50 disabled:shadow-none"
+                            >
+                                {aiLoading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <Send className="h-3.5 w-3.5" />
+                                )}
+                            </Button>
+                        </div>
+                    </form>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 }

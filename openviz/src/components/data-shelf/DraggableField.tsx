@@ -1,23 +1,32 @@
 // ============================================
-// DraggableField - DataViz Studio Pill Style
+// DraggableField - Luminous Chip
 // ============================================
 
 import { useDraggable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import { useVizStore, selectIsFieldUsed } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
 import type { FieldInfo, FieldType } from '@/types';
+import { Hash, Type, Calendar, ArrowUpWideNarrow } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 interface DraggableFieldProps {
     field: FieldInfo;
     isOverlay?: boolean;
 }
 
-const typeConfig: Record<FieldType, { label: string; style: string }> = {
-    quantitative: { label: '#', style: 'bg-[hsl(var(--field-q))] shadow-[0_0_8px_hsl(var(--field-q)/0.4)]' },
-    nominal: { label: 'A', style: 'bg-[hsl(var(--field-n))] shadow-[0_0_8px_hsl(var(--field-n)/0.4)]' },
-    temporal: { label: 'T', style: 'bg-[hsl(var(--field-t))] shadow-[0_0_8px_hsl(var(--field-t)/0.4)]' },
-    ordinal: { label: 'O', style: 'bg-[hsl(var(--field-o))] shadow-[0_0_8px_hsl(var(--field-o)/0.4)]' },
+const typeIcons: Record<FieldType, React.ElementType> = {
+    quantitative: Hash,
+    nominal: Type,
+    temporal: Calendar,
+    ordinal: ArrowUpWideNarrow,
+};
+
+// Duotone Colors (Text / Icon)
+const typeStyles: Record<FieldType, { icon: string; text: string; border: string }> = {
+    quantitative: { icon: 'text-emerald-400', text: 'text-emerald-100', border: 'border-emerald-500/20' },
+    nominal: { icon: 'text-blue-400', text: 'text-blue-100', border: 'border-blue-500/20' },
+    temporal: { icon: 'text-amber-400', text: 'text-amber-100', border: 'border-amber-500/20' },
+    ordinal: { icon: 'text-orange-400', text: 'text-orange-100', border: 'border-orange-500/20' },
 };
 
 export function DraggableField({ field, isOverlay }: DraggableFieldProps) {
@@ -27,56 +36,56 @@ export function DraggableField({ field, isOverlay }: DraggableFieldProps) {
         attributes,
         listeners,
         setNodeRef,
-        transform,
         isDragging,
     } = useDraggable({
         id: field.id,
         data: { field, type: 'field' },
     });
 
-    const style = {
-        transform: CSS.Translate.toString(transform),
-    };
+    const Icon = typeIcons[field.type];
+    const { icon, text, border } = typeStyles[field.type];
 
-    const config = typeConfig[field.type];
-
-    // If drag overlay, show a slightly different style (Ghost/Glass)
+    // Overlay style (Dragged item - Physics enabled via framer-motion in global overlay if needed, 
+    // but here we style the preview)
     if (isOverlay) {
         return (
-            <div className="flex items-center w-64 gap-3 p-3 rounded-lg bg-card/90 border border-primary/50 shadow-2xl cursor-grabbing ring-1 ring-primary/50 backdrop-blur-md">
-                <div className={cn("flex items-center justify-center w-6 h-6 rounded text-xs font-bold text-white shadow-sm ring-1 ring-white/10", config.style)}>
-                    {config.label}
-                </div>
-                <span className="text-sm font-medium text-foreground">{field.name}</span>
-            </div>
+            <motion.div
+                initial={{ scale: 1.05, rotate: -2 }}
+                animate={{ scale: 1.1, rotate: 0 }}
+                className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.3)] bg-background/90 backdrop-blur-md border border-indigo-500/50 cursor-grabbing z-50",
+                )}
+            >
+                <Icon className={cn("w-3.5 h-3.5", icon)} />
+                <span className={cn("text-xs font-semibold", text)}>{field.name}</span>
+            </motion.div>
         );
     }
 
     return (
-        <div
+        <motion.div
             ref={setNodeRef}
-            style={style}
             {...listeners}
             {...attributes}
+            layoutId={field.id}
+            whileHover={{ scale: 1.02, x: 2 }}
+            whileTap={{ scale: 0.98 }}
             className={cn(
-                "field-pill group relative overflow-hidden",
-                isDragging && "opacity-30 grayscale",
-                isUsed && "opacity-75"
+                "group relative flex items-center gap-2 px-3 py-1.5 rounded-full select-none cursor-grab active:cursor-grabbing border bg-white/5 transition-all",
+                border,
+                isUsed && "opacity-50 grayscale",
+                isDragging && "opacity-0"
             )}
         >
-            <div className={cn("field-badge transition-all duration-300 group-hover:shadow-[0_0_12px_rgba(255,255,255,0.3)]", config.style)}>
-                {config.label}
-            </div>
+            <div className={cn("absolute inset-0 rounded-full  opacity-0 group-hover:opacity-100 transition-opacity bg-white/5")} />
 
+            <Icon className={cn("w-3.5 h-3.5 shrink-0 transition-colors", icon)} />
             <span className={cn(
-                "flex-1 text-sm font-medium truncate transition-colors",
-                isUsed ? "text-muted-foreground" : "text-foreground group-hover:text-primary-foreground"
+                "text-xs font-medium truncate max-w-[140px]",
+                text
             )}>
                 {field.name}
             </span>
-
-            {/* Hover shine effect */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-shimmer pointer-events-none" />
-        </div>
+        </motion.div>
     );
 }

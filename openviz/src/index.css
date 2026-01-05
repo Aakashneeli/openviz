@@ -1,92 +1,85 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-@tailwind base;
+@import "tailwindcss";
 @plugin "tailwindcss-animate";
 
 @custom-variant dark (&:is(.dark *));
-@tailwind components;
-@tailwind utilities;
+
+@theme {
+  --font-sans: 'Inter', 'Geist Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-bg-void: 240 10% 4%;
+  --color-bg-surface: 240 6% 10%;
+}
+
 
 @layer base {
   :root {
-    /* Deep Space Theme - Zinc & Indigo */
-    --background: 240 10% 3.9%;
-    /* zinc-950 */
-    --foreground: 0 0% 98%;
+    /* Luminous Flow Theme - "Obsidian & Neon" */
 
-    --card: 240 10% 7%;
-    /* zinc-900 */
-    --card-foreground: 0 0% 98%;
+    /* Backgrounds */
+    --bg-void: 240 10% 4%;
+    /* Deepest Black-Blue */
+    --bg-surface: 240 6% 10%;
+    /* Panels (approx 30% opacity target) */
+    --bg-glass: 240 5% 10%;
 
-    --popover: 240 10% 7%;
-    --popover-foreground: 0 0% 98%;
+    /* Borders */
+    --border-glass: 0 0% 100%;
+    /* Used with opacity in utilities */
 
-    --primary: 262 83% 58%;
-    /* Indigo/Purple */
-    --primary-foreground: 210 40% 98%;
+    /* Text */
+    --text-primary: 0 0% 98%;
+    --text-muted: 240 5% 60%;
 
-    --secondary: 240 3.7% 15.9%;
-    /* zinc-800 */
+    /* Accents */
+    --accent-flux-start: #6366f1;
+    --accent-flux-end: #a855f7;
+    --signal-success: 150 60% 50%;
+
+    /* Standard Shadcn mappings to new system */
+    --background: var(--bg-void);
+    --foreground: var(--text-primary);
+    --card: var(--bg-surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--bg-surface);
+    --popover-foreground: var(--text-primary);
+    --primary: 252 59% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4% 16%;
     --secondary-foreground: 0 0% 98%;
-
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-
-    --accent: 240 3.7% 15.9%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    /* zinc-300 */
-
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 252 59% 58%;
     --radius: 0.75rem;
-
-    /* Field badges */
-    --field-q: 217 91% 60%;
-    /* Blue */
-    --field-n: 25 95% 53%;
-    /* Orange */
-    --field-o: 270 95% 60%;
-    /* Purple */
-    --field-t: 142 71% 45%;
-    /* Green */
   }
 
-  .dark {
-    /* Force dark mode */
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --primary: 263 70% 50%;
-    /* Deep Purple */
-  }
-}
-
-@layer base {
   * {
     border-color: hsl(var(--border));
   }
 
   html {
-    background-color: hsl(var(--background));
+    background-color: hsl(var(--bg-void));
     color: hsl(var(--foreground));
     color-scheme: dark;
   }
 
   body {
-    background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: 'Outfit', sans-serif;
-    background-image:
-      radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 32px 32px;
-    background-position: 0 0, 16px 16px;
+    font-family: 'Inter', 'Geist Sans', system-ui, sans-serif;
+    /* Dot Matrix Background */
+    background-color: hsl(var(--bg-void));
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: 0 0;
     overflow: hidden;
-    /* Prevent body scroll, handle in layout */
   }
 
   h1,
@@ -95,132 +88,55 @@
   h4,
   h5,
   h6 {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Inter', 'Geist Sans', system-ui, sans-serif;
     letter-spacing: -0.02em;
+    font-weight: 500;
   }
 
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
+    font-variant-ligatures: normal;
   }
 }
 
 @layer components {
 
-  /* Glassmorphism */
+  /* Glass Panel Utility */
   .glass-panel {
-    background: rgba(18, 18, 20, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    @apply bg-black/40 backdrop-blur-xl border border-white/5 shadow-2xl;
   }
 
-  .glass-card {
-    background: linear-gradient(145deg, rgba(39, 39, 42, 0.4) 0%, rgba(39, 39, 42, 0.1) 100%);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  /* Spotlight Card */
+  .card-spotlight {
+    @apply relative overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-colors;
   }
 
-  /* Field Pills */
-  .field-pill {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
-    background-color: rgba(39, 39, 42, 0.5);
-    /* zinc-800/50 */
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: grab;
-    user-select: none;
+  /* Text Effects */
+  .neon-text {
+    text-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
   }
 
-  .field-pill:hover {
-    background-color: rgba(63, 63, 70, 0.6);
-    /* zinc-700/60 */
-    border-color: rgba(255, 255, 255, 0.15);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  /* Chip Styling */
+  .field-chip {
+    @apply flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 text-xs font-medium text-slate-200 cursor-grab active:cursor-grabbing hover:bg-white/10 transition-colors;
   }
 
-  .field-pill:active {
-    cursor: grabbing;
-    transform: scale(0.98);
+  /* Scrollbar override */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
 
-  .field-badge {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    border-radius: 0.25rem;
-    font-size: 10px;
-    font-weight: 700;
-    color: white;
-    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
 
-  /* Drop Zones */
-  .drop-zone {
-    border-radius: 0.75rem;
-    border: 2px dashed rgba(255, 255, 255, 0.1);
-    background-color: rgba(255, 255, 255, 0.02);
-    transition: all 0.3s ease;
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 99px;
   }
 
-  .drop-zone.active {
-    border-color: hsl(var(--primary));
-    background-color: hsl(var(--primary) / 0.1);
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.15);
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
-
-  /* Shimmer Animation */
-  .shimmer {
-    background: linear-gradient(90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.05) 50%,
-        rgba(255, 255, 255, 0) 100%);
-    background-size: 200% 100%;
-    animation: shimmer 2s infinite;
-  }
-
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-
-    100% {
-      background-position: 200% 0;
-    }
-  }
-
-  /* Utilities */
-  .text-shadow {
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  }
-
-  .text-glow {
-    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
-  }
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 99px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }

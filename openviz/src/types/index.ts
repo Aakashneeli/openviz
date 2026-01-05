@@ -267,6 +267,31 @@ export interface DashboardLayoutItem {
 }
 
 // ============================================
+// Chart & Dashboard Summaries
+// ============================================
+
+/** AI-generated summary for a single chart */
+export interface ChartSummary {
+    id: string;
+    chartId: string;
+    summary: string;
+    keyInsights: string[];
+    generatedAt: Date;
+    isLoading?: boolean;
+}
+
+/** AI-generated summary for an entire dashboard */
+export interface DashboardSummary {
+    id: string;
+    dashboardId: string;
+    overview: string;
+    chartSummaries: ChartSummary[];
+    keyTakeaways: string[];
+    generatedAt: Date;
+    isLoading?: boolean;
+}
+
+// ============================================
 // UI State Types
 // ============================================
 

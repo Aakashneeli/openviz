@@ -24,6 +24,8 @@ import type {
     DataProfile,
     AIMessage,
     DashboardConfig,
+    ChartSummary,
+    DashboardSummary,
 } from '@/types';
 import { inferSchema } from '@/utils/schemaInference';
 import { buildVegaLiteSpec } from '@/utils/vegaSpecBuilder';
@@ -84,10 +86,16 @@ interface VizState {
 
     // AI State
     aiQuery: string;
+    aiChatOpen: boolean; // Added control for chat visibility
     aiLoading: boolean;
     aiSuggestions: ChartSuggestion[];
     aiInsights: DataInsight[];
     aiChatHistory: AIMessage[];
+
+    // Summary State
+    chartSummary: ChartSummary | null;
+    dashboardSummary: DashboardSummary | null;
+    summaryLoading: boolean;
 }
 
 interface VizActions {
@@ -124,6 +132,13 @@ interface VizActions {
     generateInsights: () => Promise<void>;
     addChatMessage: (message: AIMessage) => void;
     clearChatHistory: () => void;
+    setAIChatOpen: (isOpen: boolean) => void;
+    toggleAIChat: () => void;
+
+    // Summary Actions
+    generateChartSummary: () => Promise<void>;
+    generateDashboardSummary: () => Promise<void>;
+    clearSummaries: () => void;
 
     // History Actions (Undo/Redo)
     undo: () => void;
@@ -189,6 +204,12 @@ const initialState: VizState = {
     aiSuggestions: [],
     aiInsights: [],
     aiChatHistory: [],
+    aiChatOpen: false,
+
+    // Summaries
+    chartSummary: null,
+    dashboardSummary: null,
+    summaryLoading: false,
 };
 
 // ============================================
@@ -408,6 +429,8 @@ export const useVizStore = create<VizState & VizActions>()(
                     chartConfig: { ...initialChartConfig, id: uuidv4() },
                     encodings: [],
                     vegaSpec: null,
+                    chartSummary: null,
+                    aiInsights: [],
                 });
             },
 
@@ -573,12 +596,99 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             addChatMessage: (message: AIMessage) => {
-                const { aiChatHistory } = get();
-                set({ aiChatHistory: [...aiChatHistory, message] });
+                set((state) => ({ aiChatHistory: [...state.aiChatHistory, message] }));
             },
 
-            clearChatHistory: () => {
-                set({ aiChatHistory: [] });
+            clearChatHistory: () => set({ aiChatHistory: [] }),
+
+            setAIChatOpen: (isOpen) => set({ aiChatOpen: isOpen }),
+
+            toggleAIChat: () => set((state) => ({ aiChatOpen: !state.aiChatOpen })),
+
+            // ----------------------------------------
+            // Summary Actions
+            // ----------------------------------------
+
+            generateChartSummary: async () => {
+                const { dataset, dataProfile, chartConfig, encodings } = get();
+
+                if (!dataset || !dataProfile || encodings.length === 0) {
+                    console.error('Cannot generate summary: no chart configured');
+                    return;
+                }
+
+                set({ summaryLoading: true });
+
+                try {
+                    const { generateChartSummary } = await import('@/services/groqService');
+                    const configWithEncodings = { ...chartConfig, encodings };
+                    const result = await generateChartSummary(configWithEncodings, dataProfile, dataset.data);
+
+                    const summary: ChartSummary = {
+                        id: uuidv4(),
+                        chartId: chartConfig.id,
+                        summary: result.summary,
+                        keyInsights: result.keyInsights,
+                        generatedAt: new Date(),
+                    };
+
+                    set({ chartSummary: summary });
+                } catch (error) {
+                    console.error('Chart Summary Error:', error);
+                } finally {
+                    set({ summaryLoading: false });
+                }
+            },
+
+            generateDashboardSummary: async () => {
+                const { dataset, dataProfile, dashboardConfig } = get();
+
+                if (!dataset || !dataProfile || !dashboardConfig) {
+                    console.error('Cannot generate summary: no dashboard configured');
+                    return;
+                }
+
+                set({ summaryLoading: true });
+
+                try {
+                    const { generateDashboardSummary } = await import('@/services/groqService');
+                    const result = await generateDashboardSummary(dashboardConfig, dataProfile, dataset.data);
+
+                    // Check if the result is an error - look for the specific error message
+                    if (result.overview.includes('Failed to generate')) {
+                        console.error('Dashboard summary generation failed:', result.overview);
+                        // Don't update the summary if it's an error - keep existing summary
+                        return;
+                    }
+
+                    const chartSummaries: ChartSummary[] = result.chartSummaries.map(cs => ({
+                        id: uuidv4(),
+                        chartId: cs.chartId,
+                        summary: cs.summary,
+                        keyInsights: [],
+                        generatedAt: new Date(),
+                    }));
+
+                    const summary: DashboardSummary = {
+                        id: uuidv4(),
+                        dashboardId: dashboardConfig.id,
+                        overview: result.overview,
+                        chartSummaries,
+                        keyTakeaways: result.keyTakeaways,
+                        generatedAt: new Date(),
+                    };
+
+                    set({ dashboardSummary: summary });
+                } catch (error) {
+                    console.error('Dashboard Summary Error:', error);
+                    // Don't update state on error - keep existing summary
+                } finally {
+                    set({ summaryLoading: false });
+                }
+            },
+
+            clearSummaries: () => {
+                set({ chartSummary: null, dashboardSummary: null });
             },
 
             // ----------------------------------------
@@ -774,6 +884,11 @@ export const selectAILoading = (state: VizState) => state.aiLoading;
 export const selectAISuggestions = (state: VizState) => state.aiSuggestions;
 export const selectAIChatHistory = (state: VizState) => state.aiChatHistory ?? EMPTY_MESSAGES;
 export const selectAIInsights = (state: VizState) => state.aiInsights;
+
+// Summary Selectors
+export const selectChartSummary = (state: VizState) => state.chartSummary;
+export const selectDashboardSummary = (state: VizState) => state.dashboardSummary;
+export const selectSummaryLoading = (state: VizState) => state.summaryLoading;
 
 // UI Selectors
 export const selectLeftSidebarOpen = (state: VizState) => state.leftSidebarOpen;

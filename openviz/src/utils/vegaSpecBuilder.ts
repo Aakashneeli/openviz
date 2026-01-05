@@ -27,7 +27,7 @@ export function buildVegaLiteSpec(
     const spec: VegaLiteSpec = {
         $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
         data: { values: data },
-        mark: buildMarkSpec(mark, config.fixedColor),
+        mark: buildMarkSpec(mark, config.fixedColor) as unknown as VegaLiteSpec extends { mark: infer M } ? M : never,
         encoding: buildEncodingSpec(config.encodings),
         width: config.width === 'container' ? 'container' : config.width,
         height: config.height === 'container' ? 'container' : config.height,
@@ -37,16 +37,8 @@ export function buildVegaLiteSpec(
         spec.title = config.title;
     }
 
-    // Add interactivity if enabled
-    if (config.interactive) {
-        spec.selection = {
-            highlight: {
-                type: 'point',
-                on: 'mouseover',
-                empty: 'none',
-            },
-        };
-    }
+    // Interactivity is handled at the embed level in VizPreview.tsx
+    // Vega-Lite 5 uses 'params' instead of deprecated 'selection'
 
     return spec;
 }
@@ -194,7 +186,7 @@ export function parseVegaLiteSpec(
         return placements;
     }
 
-    const encoding = (spec as Record<string, unknown>).encoding as Record<string, unknown>;
+    const encoding = (spec as unknown as Record<string, unknown>).encoding as Record<string, unknown> | undefined;
     if (!encoding) {
         return placements;
     }
