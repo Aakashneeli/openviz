@@ -3,7 +3,7 @@
 // Intelligently determines optimal chart type
 // ============================================
 
-import type { ShelfPlacement, MarkType, FieldType } from '@/types';
+import type { ShelfPlacement, MarkType, FieldType } from '../types';
 
 /**
  * Determine the best chart type based on current encodings

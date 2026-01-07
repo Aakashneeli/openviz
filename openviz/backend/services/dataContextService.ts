@@ -11,7 +11,7 @@ import type {
     DataProfile,
     FieldProfile,
     CleaningSuggestion,
-} from '@/types';
+} from '../types';
 
 // ============================================
 // Profile Generation

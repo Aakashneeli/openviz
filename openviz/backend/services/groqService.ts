@@ -20,7 +20,7 @@ import type {
     DashboardConfig,
     DashboardLayout,
     AggregateFunction,
-} from '@/types';
+} from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { executeDataQuery, formatProfileForLLM } from './dataContextService';
 import type { DataQuery } from './dataContextService';

@@ -3,8 +3,8 @@
 // ============================================
 
 import { useMemo } from 'react';
-import type { FieldType } from '@/types';
-import { getFieldTypeColor } from '@/utils/schemaInference';
+import type { FieldType } from '@backend/types';
+import { getFieldTypeColor } from '@backend/utils/schemaInference';
 
 interface SparklineProps {
     data: number[];

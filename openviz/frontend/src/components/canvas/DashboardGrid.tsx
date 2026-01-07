@@ -8,10 +8,10 @@ import { X, Maximize2, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DashboardSummaryPanel } from '@/components/canvas/DashboardSummaryPanel';
 import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading } from '@/store/useVizStore';
-import { buildVegaLiteSpec } from '@/utils/vegaSpecBuilder';
+import { buildVegaLiteSpec } from '@backend/utils/vegaSpecBuilder';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import type { ChartConfig } from '@/types';
+import type { ChartConfig } from '@backend/types';
 
 interface DashboardChartProps {
     config: ChartConfig;

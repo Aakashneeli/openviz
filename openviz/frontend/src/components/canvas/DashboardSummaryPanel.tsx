@@ -6,7 +6,7 @@ import { Sparkles, Copy, RefreshCw, ChevronDown, ChevronUp, Check, LayoutDashboa
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { DashboardSummary } from '@/types';
+import type { DashboardSummary } from '@backend/types';
 
 interface DashboardSummaryPanelProps {
     summary: DashboardSummary | null;

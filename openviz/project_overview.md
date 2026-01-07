@@ -3,7 +3,7 @@
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
 > 
-> **Last Updated**: January 4, 2026
+> **Last Updated**: January 5, 2026
 
 ---
 
@@ -41,68 +41,60 @@
 
 ### Directory Structure
 ```
-src/
-├── components/
-│   ├── ai/                    # Chat interface, Query bar
-│   │   ├── AIChat.tsx         # Conversational chat panel with Q&A support
-│   │   └── AIQueryBar.tsx     # Quick input bar for AI queries
-│   │
-│   ├── canvas/                # Main chart rendering area
-│   │   ├── Canvas.tsx         # Main container (Grid/Flex)
-│   │   ├── VizPreview.tsx     # Individual chart wrapper with embed
-│   │   ├── DashboardGrid.tsx  # Multi-chart dashboard layout manager
-│   │   └── CodeEditor.tsx     # Monaco JSON editor for Vega specs
-│   │
-│   ├── data-shelf/            # Left sidebar for field list
-│   │   ├── DataShelf.tsx      # Field list container
-│   │   ├── DraggableField.tsx # Draggable field pill component
-│   │   └── Sparkline.tsx      # Inline data distribution preview
-│   │
-│   ├── encoding-deck/         # Right sidebar for channel mapping
-│   │   ├── EncodingDeck.tsx   # Encoding panel container
-│   │   └── EncodingShelf.tsx  # Drop zone for encoding channels
-│   │
-│   ├── layout/                # App shell and structure
-│   │   ├── AppLayout.tsx      # Main layout with sidebars and canvas
-│   │   └── TopBar.tsx         # Header with history controls, export
-│   │
-│   └── ui/                    # Reusable UI components (11 primitives)
-│       ├── badge.tsx
-│       ├── button.tsx
-│       ├── card.tsx
-│       ├── dialog.tsx
-│       ├── dropdown-menu.tsx
-│       ├── input.tsx
-│       ├── label.tsx
-│       ├── scroll-area.tsx
-│       ├── separator.tsx
-│       ├── tabs.tsx
-│       └── tooltip.tsx
+openviz/
+├── frontend/                    # React + Vite application
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ai/              # Chat interface, Query bar
+│   │   │   │   ├── AIChat.tsx
+│   │   │   │   └── AIQueryBar.tsx
+│   │   │   ├── canvas/          # Chart rendering area
+│   │   │   │   ├── Canvas.tsx
+│   │   │   │   ├── VizPreview.tsx
+│   │   │   │   ├── DashboardGrid.tsx
+│   │   │   │   └── CodeEditor.tsx
+│   │   │   ├── data-shelf/      # Left sidebar field list
+│   │   │   ├── encoding-deck/   # Right sidebar channel mapping
+│   │   │   ├── layout/          # App shell and structure
+│   │   │   └── ui/              # Reusable UI primitives
+│   │   ├── store/
+│   │   │   └── useVizStore.ts   # Central Zustand store
+│   │   ├── hooks/               # Custom React hooks
+│   │   ├── lib/
+│   │   │   └── utils.ts         # Utility functions
+│   │   ├── assets/              # Static assets
+│   │   ├── App.tsx              # Root component
+│   │   ├── App.css
+│   │   ├── index.css
+│   │   └── main.tsx             # Entry point
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── tsconfig.app.json
 │
-├── services/
-│   ├── dataContextService.ts  # Statistical profiling, query execution
-│   └── groqService.ts         # LLM communication layer (1082 lines)
+├── backend/                     # Shared services & logic (bundled by frontend)
+│   ├── services/
+│   │   ├── groqService.ts       # AI/LLM communication layer
+│   │   └── dataContextService.ts # Statistical profiling, query execution
+│   ├── types/
+│   │   └── index.ts             # Complete TypeScript type definitions
+│   ├── utils/
+│   │   ├── autoChart.ts         # Heuristics for chart selection
+│   │   ├── schemaInference.ts   # Type detection
+│   │   └── vegaSpecBuilder.ts   # Vega-Lite JSON builder
+│   ├── package.json
+│   └── tsconfig.json
 │
-├── store/
-│   └── useVizStore.ts         # CENTRAL BRAIN: Zustand store (784 lines)
-│
-├── types/
-│   └── index.ts               # Complete TypeScript type definitions
-│
-├── utils/
-│   ├── autoChart.ts           # Heuristics for default chart selection
-│   ├── schemaInference.ts     # Type detection (Quantitative vs Nominal)
-│   └── vegaSpecBuilder.ts     # Compiles store state -> Vega-Lite JSON
-│
-├── hooks/                     # Custom React hooks (reserved)
-├── lib/
-│   └── utils.ts               # Utility functions (cn, etc.)
-│
-├── App.tsx                    # Root component
-├── App.css                    # Global app styles
-├── index.css                  # Base Tailwind styles
-└── main.tsx                   # Entry point
+├── package.json                 # Root workspace scripts
+├── .env                         # Environment variables
+├── README.md
+└── project_overview.md          # This document
 ```
+
+**Import Aliases:**
+- `@/*` → `frontend/src/*` (frontend-internal imports)
+- `@backend/*` → `backend/*` (cross-package imports)
 
 ### State Management (`useVizStore.ts`)
 The entire application state is centralized in a single Zustand store with DevTools integration. This enables features like global Undo/Redo and seamless serialization.
@@ -160,28 +152,28 @@ We use **Groq** for ultra-low latency inference, crucial for the "real-time" fee
 **Core Functions:**
 | Function | Purpose |
 |----------|---------|
-| `detectIntent(query, hasCurrentChart, hasDashboard, dataContext)` | LLM-based intent classification |
-| `processAIQuery(query, dataProfile, fields, data, encodings, history, dashboard, mark)` | Main entry point for all AI queries |
-| `processDataQuestion(query, dataProfile, fields, data, history)` | Q&A with Arquero for 100% accuracy |
-| `processChartRequest(query, dataProfile, fields, history)` | Single chart generation |
-| `processModifyRequest(query, fields, encodings, mark, history)` | Modify current chart contextually |
-| `processDashboardRequest(query, dataProfile, fields)` | Multi-chart dashboard generation |
-| `processModifyDashboardRequest(query, dataProfile, fields, dashboard, history)` | Add/remove charts from dashboard |
-| `processExplainRequest(query, dataProfile, fields, data)` | "Why?" questions with analysis |
-| `generateDataInsights(data, fields)` | Heuristic + AI insight generation |
-| `generateChartSummary(chartConfig, dataProfile, data)` | **NEW** Generate AI summary for a chart |
-| `generateDashboardSummary(dashboardConfig, dataProfile, data)` | **NEW** Generate AI summary for dashboard |
+| `detectIntent(query, ...)` | LLM-based intent intent classification with **reasoning** |
+| `processAIQuery(...)` | Main entry point for all AI queries |
+| `processDataQuestion(...)` | Q&A with Arquero for 100% accuracy |
+| `processChartRequest(...)` | Single chart generation with smarter field inference |
+| `processModifyRequest(...)` | **ENHANCED** Contextual chart modification handling 7 types of visual changes |
+| `processDashboardRequest(...)` | Multi-chart dashboard generation |
+| `processModifyDashboardRequest(...)` | **ENHANCED** Bulk operations (add, remove, removeAll, replace) |
+| `processExplainRequest(...)` | "Why?" questions with analysis |
+| `generateDataInsights(...)` | Heuristic + AI insight generation |
+| `generateChartSummary(...)` | Generate AI summary for a chart |
+| `generateDashboardSummary(...)` | Generate AI summary for dashboard |
 
 ### 4.2. Intent Classification
-The AI detects user intent to route queries appropriately:
+The AI detects user intent to route queries appropriately. All responses now include **reasoning** for transparency.
 
 | Intent | Description | Example |
 |--------|-------------|---------|
 | `question` | Data Q&A (text answer) | "What is the average age?" |
 | `chart` | Create single chart | "Show sales by region" |
 | `dashboard` | Create multi-chart view | "Give me a sales overview dashboard" |
-| `modify` | Edit current chart | "Make it a line chart" |
-| `modify_dashboard` | Edit current dashboard | "Add a pie chart for categories" |
+| `modify` | Edit current chart (Size, Color, Type, etc.) | "Make it bigger", "Change colors to blue" |
+| `modify_dashboard` | Edit current dashboard (Single/Bulk) | "Remove all charts", "Add a pie chart" |
 | `explain` | Analysis request | "Why are sales down in March?" |
 | `unknown` | Fallback | General queries |
 

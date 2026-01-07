@@ -26,11 +26,11 @@ import type {
     DashboardConfig,
     ChartSummary,
     DashboardSummary,
-} from '@/types';
-import { inferSchema } from '@/utils/schemaInference';
-import { buildVegaLiteSpec } from '@/utils/vegaSpecBuilder';
-import { getChartSuggestions } from '@/utils/autoChart';
-import { generateDataProfile } from '@/services/dataContextService';
+} from '@backend/types';
+import { inferSchema } from '@backend/utils/schemaInference';
+import { buildVegaLiteSpec } from '@backend/utils/vegaSpecBuilder';
+import { getChartSuggestions } from '@backend/utils/autoChart';
+import { generateDataProfile } from '@backend/services/dataContextService';
 
 // ============================================
 // Store Interface
@@ -479,7 +479,7 @@ export const useVizStore = create<VizState & VizActions>()(
 
                 try {
                     // Use the enhanced AI service
-                    const { processAIQuery } = await import('@/services/groqService');
+                    const { processAIQuery } = await import('@backend/services/groqService');
                     const { dashboardConfig, chartConfig } = get();
 
                     const result = await processAIQuery(
@@ -578,7 +578,7 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({ aiLoading: true });
 
                 try {
-                    const { generateDataInsights } = await import('@/services/groqService');
+                    const { generateDataInsights } = await import('@backend/services/groqService');
                     const { dataset } = get();
 
                     if (!dataset) {
@@ -620,7 +620,7 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({ summaryLoading: true });
 
                 try {
-                    const { generateChartSummary } = await import('@/services/groqService');
+                    const { generateChartSummary } = await import('@backend/services/groqService');
                     const configWithEncodings = { ...chartConfig, encodings };
                     const result = await generateChartSummary(configWithEncodings, dataProfile, dataset.data);
 
@@ -651,7 +651,7 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({ summaryLoading: true });
 
                 try {
-                    const { generateDashboardSummary } = await import('@/services/groqService');
+                    const { generateDashboardSummary } = await import('@backend/services/groqService');
                     const result = await generateDashboardSummary(dashboardConfig, dataProfile, dataset.data);
 
                     // Check if the result is an error - look for the specific error message

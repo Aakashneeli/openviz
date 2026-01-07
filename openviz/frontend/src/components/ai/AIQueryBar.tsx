@@ -7,7 +7,7 @@ import { Sparkles, Send, Loader2, X, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useVizStore, selectDataset, selectAILoading } from '@/store/useVizStore';
-import { isAIAvailable } from '@/services/groqService';
+import { isAIAvailable } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
 
 export function AIQueryBar() {

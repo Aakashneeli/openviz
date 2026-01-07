@@ -10,7 +10,7 @@ import type {
     FieldType,
     FieldStats,
     DataRecord
-} from '@/types';
+} from '../types';
 
 // Date formats to try for temporal detection
 const DATE_FORMATS = [

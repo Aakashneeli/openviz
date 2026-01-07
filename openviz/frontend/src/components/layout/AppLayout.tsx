@@ -15,7 +15,7 @@ import { DraggableField } from '@/components/data-shelf/DraggableField';
 import { AIChat } from '@/components/ai/AIChat';
 import { useVizStore } from '@/store/useVizStore';
 import { Button } from '@/components/ui/button';
-import type { FieldInfo, EncodingChannel } from '@/types';
+import type { FieldInfo, EncodingChannel } from '@backend/types';
 
 const dropAnimation: DropAnimation = {
     sideEffects: defaultDropAnimationSideEffects({

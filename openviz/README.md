@@ -67,14 +67,14 @@ Build charts by mapping data fields to visual channels:
 #### Natural Language Charting
 Type queries like:
 - *"Show a bar chart of sales by region"*
-- *"Create a scatter plot of price vs quantity"*
-- *"Trend of revenue over time"*
+- *"Make it bigger and change colors to blue"*
+- *"Remove all the charts"*
+- *"Replace everything with line charts"*
 
-#### AI Chart Suggestions
-OpenViz automatically suggests optimal chart types based on:
-- Field types in your dataset
-- Current encoding configuration
-- Data characteristics
+#### Smart Field Inference & Memory
+- **Semantic Matching**: Understands "sales" even if field is named "Revenue_Amount"
+- **Context Awareness**: Remembers typical follow-up questions ("Now make it a pie chart")
+- **Reasoning**: Explains why it chose a specific chart type or modification
 
 #### Data Insights Generation
 AI analyzes your data and provides:
@@ -162,54 +162,57 @@ Toggle to the code view to:
 
 ## 📐 Architecture
 
+OpenViz uses a modular folder structure separating frontend UI from backend logic:
+
 ```
-src/
-├── components/
-│   ├── ai/                    # AI Chat Interface
-│   │   ├── AIChat.tsx         # Floating chat panel
-│   │   └── AIQueryBar.tsx     # Query input bar
-│   │
-│   ├── canvas/                # Visualization Canvas
-│   │   ├── Canvas.tsx         # Main canvas container
-│   │   ├── VizPreview.tsx     # Vega chart renderer
-│   │   └── CodeEditor.tsx     # Monaco JSON editor
-│   │
-│   ├── data-shelf/            # Data Fields Panel
-│   │   ├── DataShelf.tsx      # Field list container
-│   │   ├── DraggableField.tsx # Draggable field item
-│   │   └── Sparkline.tsx      # Inline data preview
-│   │
-│   ├── encoding-deck/         # Encoding Configuration
-│   │   ├── EncodingDeck.tsx   # Encoding panel
-│   │   └── EncodingShelf.tsx  # Drop zone for channels
-│   │
-│   ├── layout/                # App Layout
-│   │   ├── AppLayout.tsx      # Main layout + DnD context
-│   │   └── TopBar.tsx         # Header toolbar
-│   │
-│   └── ui/                    # Reusable UI Components
-│       ├── button.tsx
-│       ├── dialog.tsx
-│       ├── scroll-area.tsx
-│       └── ...
+openviz/
+├── frontend/                    # React + Vite Application
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ai/              # AI Chat Interface
+│   │   │   │   ├── AIChat.tsx   # Floating chat panel
+│   │   │   │   └── AIQueryBar.tsx
+│   │   │   ├── canvas/          # Visualization Canvas
+│   │   │   │   ├── Canvas.tsx
+│   │   │   │   ├── VizPreview.tsx
+│   │   │   │   ├── DashboardGrid.tsx
+│   │   │   │   └── CodeEditor.tsx
+│   │   │   ├── data-shelf/      # Data Fields Panel
+│   │   │   ├── encoding-deck/   # Encoding Configuration
+│   │   │   ├── layout/          # App Layout
+│   │   │   └── ui/              # Reusable UI Components
+│   │   ├── store/
+│   │   │   └── useVizStore.ts   # Zustand state management
+│   │   ├── hooks/               # Custom React hooks
+│   │   ├── lib/
+│   │   │   └── utils.ts         # Utility functions
+│   │   └── assets/              # Static assets
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── tsconfig.json
 │
-├── services/
-│   └── groqService.ts         # AI/Groq API integration
+├── backend/                     # Shared Services & Logic
+│   ├── services/
+│   │   ├── groqService.ts       # AI/Groq API integration
+│   │   └── dataContextService.ts # Data profiling & queries
+│   ├── types/
+│   │   └── index.ts             # TypeScript type definitions
+│   ├── utils/
+│   │   ├── autoChart.ts         # Smart chart type selection
+│   │   ├── schemaInference.ts   # Data type detection
+│   │   └── vegaSpecBuilder.ts   # Vega-Lite spec generation
+│   ├── package.json
+│   └── tsconfig.json
 │
-├── store/
-│   └── useVizStore.ts         # Zustand state management
-│
-├── types/
-│   └── index.ts               # TypeScript type definitions
-│
-├── utils/
-│   ├── autoChart.ts           # Smart chart type selection
-│   ├── schemaInference.ts     # Data type detection
-│   └── vegaSpecBuilder.ts     # Vega-Lite spec generation
-│
-└── lib/
-    └── utils.ts               # Utility functions (cn, etc.)
+├── package.json                 # Root workspace scripts
+├── .env                         # Environment variables
+└── README.md
 ```
+
+**Import Aliases:**
+- `@/*` → `frontend/src/*` (frontend-internal imports)
+- `@backend/*` → `backend/*` (cross-package imports)
 
 ---
 
@@ -256,8 +259,10 @@ flowchart TD
 git clone https://github.com/your-username/openviz.git
 cd openviz
 
-# Install dependencies
+# Install frontend dependencies
+cd frontend
 npm install
+cd ..
 ```
 
 ### Environment Setup
@@ -277,8 +282,11 @@ VITE_AI_MODEL=meta-llama/llama-4-maverick-17b-128e-instruct
 ### Running the App
 
 ```bash
-# Start development server
+# From project root
 npm run dev
+
+# Or directly from frontend folder
+cd frontend && npm run dev
 
 # Build for production
 npm run build
@@ -292,6 +300,8 @@ The app will be available at `http://localhost:5173`
 ---
 
 ## 📦 Available Scripts
+
+These scripts can be run from the **project root** (they delegate to frontend):
 
 | Command | Description |
 |---------|-------------|

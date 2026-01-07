@@ -10,7 +10,7 @@ import type {
     DataRecord,
     EncodingChannel,
     MarkType
-} from '@/types';
+} from '../types';
 import { determineChartType } from './autoChart';
 
 /**

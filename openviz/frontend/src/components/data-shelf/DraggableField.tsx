@@ -5,7 +5,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { useVizStore, selectIsFieldUsed } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
-import type { FieldInfo, FieldType } from '@/types';
+import type { FieldInfo, FieldType } from '@backend/types';
 import { Hash, Type, Calendar, ArrowUpWideNarrow } from 'lucide-react';
 import { motion } from 'framer-motion';
 

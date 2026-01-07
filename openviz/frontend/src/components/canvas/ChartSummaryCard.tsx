@@ -6,7 +6,7 @@ import { Sparkles, Copy, RefreshCw, ChevronDown, ChevronUp, Check } from 'lucide
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { ChartSummary } from '@/types';
+import type { ChartSummary } from '@backend/types';
 
 interface ChartSummaryCardProps {
     summary: ChartSummary | null;

@@ -3,7 +3,7 @@ import { X } from 'lucide-react'; // Added icon for nested feel
 import { Button } from '@/components/ui/button';
 import { useVizStore, selectEncodingByChannel } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
-import type { EncodingChannel } from '@/types';
+import type { EncodingChannel } from '@backend/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface EncodingShelfProps {
