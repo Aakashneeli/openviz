@@ -9,5 +9,10 @@
     "preview": "cd frontend && npm run preview",
     "lint": "cd frontend && npm run lint",
     "install:all": "cd frontend && npm install"
+  },
+  "dependencies": {
+    "arquero": "^8.0.3",
+    "date-fns": "^4.1.0",
+    "groq-sdk": "^0.37.0"
   }
 }

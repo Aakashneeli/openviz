@@ -542,12 +542,17 @@ export const useVizStore = create<VizState & VizActions>()(
                             });
                             get().regenerateSpec();
 
+                            // Get the generated ECharts option for transparency mode
+                            const generatedOption = get().echartsOption;
+
                             const assistantMessage: AIMessage = {
                                 id: uuidv4(),
                                 role: 'assistant',
                                 content: result.textAnswer || `Created ${result.chartConfig.mark} chart`,
                                 timestamp: new Date(),
                                 resultType: 'chart',
+                                chartConfig: result.chartConfig,
+                                echartsOption: generatedOption || undefined,
                             };
                             get().addChatMessage(assistantMessage);
                         }

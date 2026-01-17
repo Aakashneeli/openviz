@@ -9,7 +9,8 @@ import type {
     FieldInfo,
     FieldType,
     FieldStats,
-    DataRecord
+    DataRecord,
+    SemanticType
 } from '../types';
 
 // Date formats to try for temporal detection
@@ -50,6 +51,7 @@ export function inferSchema(
     return Array.from(columns).map((columnName) => {
         const values = data.slice(0, sampleSize).map((row) => row[columnName]);
         const type = detectFieldType(values);
+        const semanticType = detectSemanticType(values);
         const stats = calculateStats(values, type);
         const sparklineData = generateSparklineData(values, type, stats);
 
@@ -57,6 +59,7 @@ export function inferSchema(
             id: uuidv4(),
             name: columnName,
             type,
+            semanticType,
             stats,
             sparklineData,
         };
@@ -103,6 +106,112 @@ export function detectFieldType(values: unknown[]): FieldType {
     }
 
     return 'nominal';
+}
+
+// ============================================
+// Semantic Type Detection (Phase 1 Feature)
+// ============================================
+
+// Regex patterns for semantic type detection
+// IMPORTANT: These patterns are strict to avoid false positives
+const SEMANTIC_PATTERNS: Record<Exclude<SemanticType, 'generic'>, RegExp> = {
+    // Email: requires @ and domain
+    email: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+    // Phone: requires at least 7 digits with optional formatting, must start with + or digit
+    phone: /^[\+]?[0-9]{1,4}[-.\s]?[(]?[0-9]{1,4}[)]?[-.\s]?[0-9]{3,4}[-.\s]?[0-9]{3,4}$/,
+    // URL: MUST have http/https OR www prefix to avoid matching decimals
+    url: /^(https?:\/\/)(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)?$|^www\.[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)?$/,
+    // Currency: MUST have currency symbol (not optional) - symbol before or after
+    currency: /^[\$\€\£\¥\₹]\s?[\d,]+\.?\d*$|^[\d,]+\.?\d*\s?[\$\€\£\¥\₹]$/,
+    // Percentage: MUST have % symbol
+    percentage: /^-?\d+\.?\d*\s?%$/,
+    // Country Code: 2-3 uppercase letters (validated against known codes)
+    countryCode: /^[A-Z]{2,3}$/,
+    // Zip Code: US (5 or 5-4) or UK format
+    zipCode: /^\d{5}(-\d{4})?$|^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i,
+};
+
+// Common country codes for validation
+const COUNTRY_CODES = new Set([
+    'US', 'UK', 'GB', 'CA', 'AU', 'DE', 'FR', 'IN', 'CN', 'JP', 'BR', 'MX',
+    'IT', 'ES', 'NL', 'SE', 'NO', 'DK', 'FI', 'PL', 'RU', 'KR', 'SG', 'HK',
+    'NZ', 'IE', 'AT', 'CH', 'BE', 'PT', 'GR', 'CZ', 'HU', 'RO', 'IL', 'ZA',
+    'AE', 'SA', 'EG', 'NG', 'KE', 'TH', 'MY', 'ID', 'PH', 'VN', 'TW', 'AR',
+    'CL', 'CO', 'PE', 'VE', 'PK', 'BD', 'UA', 'TR', 'IR', 'IQ',
+]);
+
+/**
+ * Detect semantic type of a field based on sample values
+ * Returns 'generic' if no specific semantic type is detected
+ */
+export function detectSemanticType(values: unknown[]): SemanticType {
+    const nonNullValues = values
+        .filter((v) => v !== null && v !== undefined && v !== '')
+        .map(String);
+
+    if (nonNullValues.length === 0) {
+        return 'generic';
+    }
+
+    // Sample up to 100 values for performance
+    const sample = nonNullValues.slice(0, 100);
+    const matchThreshold = 0.7; // 70% of values must match
+
+    // Check each semantic type
+    for (const [semanticType, pattern] of Object.entries(SEMANTIC_PATTERNS)) {
+        const matchCount = sample.filter((v) => pattern.test(v.trim())).length;
+        const matchRatio = matchCount / sample.length;
+
+        if (matchRatio >= matchThreshold) {
+            // Special validation for country codes
+            if (semanticType === 'countryCode') {
+                const countryMatchCount = sample.filter((v) =>
+                    COUNTRY_CODES.has(v.trim().toUpperCase())
+                ).length;
+                if (countryMatchCount / sample.length >= matchThreshold) {
+                    return 'countryCode';
+                }
+            } else {
+                return semanticType as SemanticType;
+            }
+        }
+    }
+
+    return 'generic';
+}
+
+/**
+ * Get a display-friendly label for a semantic type
+ */
+export function getSemanticTypeLabel(semanticType: SemanticType): string {
+    const labels: Record<SemanticType, string> = {
+        email: 'Email',
+        phone: 'Phone',
+        url: 'URL',
+        currency: 'Currency',
+        percentage: 'Percentage',
+        countryCode: 'Country',
+        zipCode: 'Zip Code',
+        generic: '',
+    };
+    return labels[semanticType];
+}
+
+/**
+ * Get icon name for a semantic type (for UI display)
+ */
+export function getSemanticTypeIcon(semanticType: SemanticType): string {
+    const icons: Record<SemanticType, string> = {
+        email: 'mail',
+        phone: 'phone',
+        url: 'link',
+        currency: 'dollar-sign',
+        percentage: 'percent',
+        countryCode: 'globe',
+        zipCode: 'map-pin',
+        generic: '',
+    };
+    return icons[semanticType];
 }
 
 /**

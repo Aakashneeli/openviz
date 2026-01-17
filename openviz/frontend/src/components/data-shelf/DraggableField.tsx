@@ -5,8 +5,9 @@
 import { useDraggable } from '@dnd-kit/core';
 import { useVizStore, selectIsFieldUsed } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
-import type { FieldInfo, FieldType } from '@backend/types';
-import { Hash, Type, Calendar, ArrowUpWideNarrow } from 'lucide-react';
+import type { FieldInfo, FieldType, SemanticType } from '@backend/types';
+import { getSemanticTypeLabel } from '@backend/utils/schemaInference';
+import { Hash, Type, Calendar, ArrowUpWideNarrow, Mail, Phone, Link, DollarSign, Percent, Globe, MapPin } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface DraggableFieldProps {
@@ -19,6 +20,18 @@ const typeIcons: Record<FieldType, React.ElementType> = {
     nominal: Type,
     temporal: Calendar,
     ordinal: ArrowUpWideNarrow,
+};
+
+// Semantic type icons
+const semanticTypeIcons: Record<SemanticType, React.ElementType | null> = {
+    email: Mail,
+    phone: Phone,
+    url: Link,
+    currency: DollarSign,
+    percentage: Percent,
+    countryCode: Globe,
+    zipCode: MapPin,
+    generic: null,
 };
 
 // Duotone Colors (Text / Icon)
@@ -45,6 +58,11 @@ export function DraggableField({ field, isOverlay }: DraggableFieldProps) {
     const Icon = typeIcons[field.type];
     const { icon, text, border } = typeStyles[field.type];
 
+    // Get semantic type info
+    const semanticType = field.semanticType || 'generic';
+    const SemanticIcon = semanticTypeIcons[semanticType];
+    const semanticLabel = getSemanticTypeLabel(semanticType);
+
     // Overlay style (Dragged item - Physics enabled via framer-motion in global overlay if needed, 
     // but here we style the preview)
     if (isOverlay) {
@@ -58,6 +76,11 @@ export function DraggableField({ field, isOverlay }: DraggableFieldProps) {
             >
                 <Icon className={cn("w-3.5 h-3.5", icon)} />
                 <span className={cn("text-xs font-semibold", text)}>{field.name}</span>
+                {semanticLabel && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                        {semanticLabel}
+                    </span>
+                )}
             </motion.div>
         );
     }
@@ -79,13 +102,24 @@ export function DraggableField({ field, isOverlay }: DraggableFieldProps) {
         >
             <div className={cn("absolute inset-0 rounded-full  opacity-0 group-hover:opacity-100 transition-opacity bg-white/5")} />
 
-            <Icon className={cn("w-3.5 h-3.5 shrink-0 transition-colors", icon)} />
+            {/* Show semantic icon if available, otherwise type icon */}
+            {SemanticIcon ? (
+                <SemanticIcon className={cn("w-3.5 h-3.5 shrink-0 transition-colors text-indigo-400")} />
+            ) : (
+                <Icon className={cn("w-3.5 h-3.5 shrink-0 transition-colors", icon)} />
+            )}
             <span className={cn(
-                "text-xs font-medium truncate max-w-[140px]",
+                "text-xs font-medium truncate max-w-[110px]",
                 text
             )}>
                 {field.name}
             </span>
+            {/* Semantic type badge */}
+            {semanticLabel && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 shrink-0">
+                    {semanticLabel}
+                </span>
+            )}
         </motion.div>
     );
 }

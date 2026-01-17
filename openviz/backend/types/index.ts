@@ -11,6 +11,17 @@ import type { EChartsOption } from 'echarts';
 /** Type classification for dataset columns */
 export type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
 
+/** Semantic type classification for richer field understanding */
+export type SemanticType =
+    | 'email'
+    | 'phone'
+    | 'url'
+    | 'currency'
+    | 'percentage'
+    | 'countryCode'
+    | 'zipCode'
+    | 'generic';
+
 /** Statistics calculated for each field based on its type */
 export interface FieldStats {
     count: number;
@@ -34,6 +45,8 @@ export interface FieldInfo {
     id: string;
     name: string;
     type: FieldType;
+    /** Optional semantic type for richer understanding (email, phone, url, etc.) */
+    semanticType?: SemanticType;
     stats: FieldStats;
     /** Pre-computed sparkline data for quick visualization */
     sparklineData: number[];
@@ -208,6 +221,10 @@ export interface AIMessage {
     timestamp: Date;
     /** If this message resulted in a chart/dashboard */
     resultType?: 'text' | 'chart' | 'dashboard' | 'error';
+    /** Store the generated chart config for Transparency Mode (Peek Code feature) */
+    chartConfig?: ChartConfig;
+    /** Store the generated ECharts option for Transparency Mode */
+    echartsOption?: EChartsOption;
 }
 
 // ============================================

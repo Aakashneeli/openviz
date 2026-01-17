@@ -3,7 +3,7 @@
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
 > 
-> **Last Updated**: January 9, 2026
+> **Last Updated**: January 17, 2026
 
 ---
 
@@ -131,8 +131,10 @@ The entire application state is centralized in a single Zustand store with DevTo
    - `nominal` (Categories, Strings)
    - `temporal` (Dates)
    - `ordinal` (Ranked data)
-4. **Profiling**: `dataContextService.ts` calculates stats (min, max, mean, unique values) using `Arquero`.
-5. **Store Update**: The processed dataset, schema, and `DataProfile` are saved to `useVizStore`.
+4. **Semantic Detection**: `detectSemanticType()` identifies richer field semantics:
+   - `email`, `phone`, `url`, `currency`, `percentage`, `countryCode`, `zipCode`, `generic`
+5. **Profiling**: `dataContextService.ts` calculates stats (min, max, mean, unique values) using `Arquero`.
+6. **Store Update**: The processed dataset, schema, and `DataProfile` are saved to `useVizStore`.
 
 ### 3.2. Visual Encoding (The "Deck")
 Instead of writing code, users drag fields from the **Data Shelf** to the **Encoding Deck**.
@@ -246,6 +248,22 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 - **Smart Defaults**: `autoChart.ts` selects appropriate chart types based on field types.
 - **Undo/Redo**: Every action pushes to history stack via Zustand middleware.
 
+### 🔍 Smart Data Profiler 2.0 (Phase 1)
+- **Semantic Type Detection**: Automatically identifies field semantics (email, phone, URL, currency, etc.) using regex patterns.
+- **Visual Badges**: Data Shelf displays semantic type badges with appropriate icons (Mail, Phone, Link, etc.).
+- **Enhanced Field Info**: `FieldInfo` interface includes optional `semanticType` property.
+
+### 👁️ Transparency Mode (Phase 1)
+- **"Peek Code" Feature**: AI-generated charts display collapsible ECharts option viewer in chat.
+- **Syntax Highlighting**: Custom JSON syntax highlighter without external dependencies.
+- **Copy to Clipboard**: One-click copy of generated chart configurations.
+- **Collapsible UI**: `CodePreview` component with smooth expand/collapse animations.
+
+### 🎯 Enhanced Data Shelf (Phase 1)
+- **Ghost Drag Preview**: Dragged fields show floating overlay with indigo glow effect.
+- **Semantic Icons**: Fields display context-aware icons based on detected semantic type.
+- **Smooth Animations**: Framer Motion-powered drag interactions with physics-based effects.
+
 ---
 
 ## 6. Type System Summary
@@ -254,6 +272,9 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 ```typescript
 // Field Classification
 type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
+
+// Semantic Type Classification (Phase 1)
+type SemanticType = 'email' | 'phone' | 'url' | 'currency' | 'percentage' | 'countryCode' | 'zipCode' | 'generic';
 
 // Encoding Channels
 type EncodingChannel = 'x' | 'y' | 'color' | 'size' | 'shape' | 'tooltip' | 'row' | 'column';
@@ -265,24 +286,35 @@ type MarkType = 'bar' | 'line' | 'point' | 'area' | 'arc' | 'rect' | 'rule' | 't
 type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard' | 'explain' | 'unknown';
 
 // Key Interfaces
-interface FieldInfo { id, name, type, stats, sparklineData }
+interface FieldInfo { id, name, type, semanticType?, stats, sparklineData }
 interface Dataset { id, name, fields, rowCount, data, uploadedAt }
 interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
 interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor? }
 interface DashboardConfig { id, title?, charts, layout, createdAt }
 interface DataProfile { rowCount, columnCount, fields, summary?, cleaningSuggestions?, generatedAt }
 interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error? }
-interface AIMessage { id, role, content, timestamp, resultType? }
+interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, echartsOption? }
 ```
 
 ---
 
-## 7. Future Roadmap
-*(Derived from project enhancements log)*
-1. **Templates**: Pre-defined dashboard layouts for common use cases (Sales, SaaS Metrics).
-2. **Data Transformations**: Allowing the AI to create *new* calculated fields (e.g., `Profit = Sales - Cost`).
-3. **Export Engine**: High-resolution PNG/SVG export and "Share Link" functionality.
-4. **Local LLM Support**: Running WebLLM in the browser for offline privacy.
+## 7. Development Roadmap & Status
+*(Based on `feature_roadmap.md`)*
+
+### ✅ Phase 1: Core Foundation & Trust (Completed Jan 2026)
+- **1.1 Smart Data Profiler 2.0**: Semantic type detection (Email, URL, Currency, etc.)
+- **1.2 Transparency Mode**: "Peek Code" to view/copy AI-generated ECharts options.
+- **1.3 Enhanced Data Shelf**: Semantic badges and ghost-drag interactions.
+
+### 🚧 Phase 2: The "Thinking" Canvas (Current Focus)
+- **2.1 The Data Painter**: Interactive "Explain Selection" tool.
+- **2.2 Dashboard Templates**: One-click layouts for common use cases (Sales, SaaS).
+- **2.3 Smart Annotations**: AI-generated chart callouts.
+
+### 🔮 Phase 3: Advanced Analytics (Planned)
+- **3.1 Client-Side Forecasting**: Exponential smoothing / linear regression in browser.
+- **3.2 "What-If" Sliders**: Parameterized dashboard controls.
+- **3.3 Local LLM**: WebLLM integration for offline privacy.
 
 ---
 

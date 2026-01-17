@@ -7,6 +7,7 @@ import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChar
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CodePreview } from '@/components/ui/CodePreview';
 import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory } from '@/store/useVizStore';
 import { isAIAvailable } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
@@ -194,6 +195,16 @@ export function AIChat() {
                                                 </div>
                                             )}
                                             {msg.content}
+
+                                            {/* Transparency Mode: Peek Code for chart messages */}
+                                            {msg.role === 'assistant' && msg.resultType === 'chart' && msg.echartsOption && (
+                                                <div className="mt-2">
+                                                    <CodePreview
+                                                        code={msg.echartsOption}
+                                                        title="ECharts Option"
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
