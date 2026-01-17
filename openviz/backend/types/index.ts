@@ -2,7 +2,7 @@
 // OpenViz Type Definitions
 // ============================================
 
-import type { TopLevelSpec } from 'vega-lite';
+import type { EChartsOption } from 'echarts';
 
 // ============================================
 // Field Types & Statistics
@@ -102,13 +102,36 @@ export interface ShelfPlacement {
     sort?: 'ascending' | 'descending' | null;
 }
 
-/** Chart mark types */
+/** Chart mark types - includes advanced ECharts visualizations */
 export type MarkType =
+    // Basic charts
     | 'bar'
     | 'line'
-    | 'point'
+    | 'point'       // scatter
     | 'area'
-    | 'arc'
+    | 'arc'         // pie/donut
+    // Statistical charts
+    | 'boxplot'
+    | 'candlestick'
+    | 'histogram'   // distribution analysis
+    // Hierarchical charts
+    | 'treemap'
+    | 'sunburst'
+    | 'tree'        // org charts, decision trees
+    // Relationship charts
+    | 'sankey'
+    | 'graph'
+    // Specialty charts
+    | 'radar'
+    | 'heatmap'
+    | 'funnel'
+    | 'gauge'
+    // Financial/Advanced charts
+    | 'parallel'    // parallel coordinates
+    | 'waterfall'   // financial changes
+    | 'calendar'    // calendar heatmap
+    | 'pictorialBar' // pictorial bar chart
+    // Legacy/utility
     | 'rect'
     | 'rule'
     | 'text'
@@ -128,10 +151,10 @@ export interface ChartConfig {
 }
 
 // ============================================
-// Vega-Lite Spec (re-export for convenience)
+// ECharts Option (re-export for convenience)
 // ============================================
 
-export type VegaLiteSpec = TopLevelSpec;
+export type { EChartsOption };
 
 // ============================================
 // AI Features

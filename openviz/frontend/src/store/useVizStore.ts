@@ -15,7 +15,7 @@ import type {
     ChartConfig,
     MarkType,
     EncodingChannel,
-    VegaLiteSpec,
+    EChartsOption,
     DataRecord,
     UploadStatus,
     CanvasViewMode,
@@ -28,7 +28,7 @@ import type {
     DashboardSummary,
 } from '@backend/types';
 import { inferSchema } from '@backend/utils/schemaInference';
-import { buildVegaLiteSpec } from '@backend/utils/vegaSpecBuilder';
+import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { getChartSuggestions } from '@backend/utils/autoChart';
 import { generateDataProfile } from '@backend/services/dataContextService';
 
@@ -43,7 +43,7 @@ import { generateDataProfile } from '@backend/services/dataContextService';
 interface HistoryEntry {
     encodings: ShelfPlacement[];
     chartConfig: ChartConfig;
-    vegaSpec: VegaLiteSpec | null;
+    echartsOption: EChartsOption | null;
 }
 
 interface HistoryState {
@@ -70,9 +70,10 @@ interface VizState {
     // Dashboard Configuration (for multi-chart views)
     dashboardConfig: DashboardConfig | null;
     viewMode: 'single' | 'dashboard';
+    editingChartId: string | null;  // Track which chart is being edited from dashboard
 
-    // Generated Vega-Lite Spec
-    vegaSpec: VegaLiteSpec | null;
+    // Generated ECharts Option
+    echartsOption: EChartsOption | null;
 
     // History (Undo/Redo)
     history: HistoryState;
@@ -150,13 +151,22 @@ interface VizActions {
     // Dashboard Actions
     setDashboardConfig: (config: DashboardConfig | null) => void;
     setViewMode: (mode: 'single' | 'dashboard') => void;
+    createDashboard: (title?: string) => void;
+    deleteDashboard: () => void;
+    renameDashboard: (title: string) => void;
+    addChartToDashboard: (config?: ChartConfig) => void;
+    removeChartFromDashboard: (chartId: string) => void;
+    duplicateChartInDashboard: (chartId: string) => void;
+    editChartFromDashboard: (chartId: string) => void;
+    updateChartInDashboard: (chartId: string) => void;
+    syncAndReturnToDashboard: () => void;
 
     // Sidebar Actions
     toggleLeftSidebar: () => void;
     toggleRightSidebar: () => void;
 
     // Spec Actions
-    updateSpecFromJson: (spec: VegaLiteSpec) => void;
+    updateSpecFromJson: (option: EChartsOption) => void;
     regenerateSpec: () => void;
 }
 
@@ -182,11 +192,12 @@ const initialState: VizState = {
     // Chart/Encoding
     encodings: [],
     chartConfig: initialChartConfig,
-    vegaSpec: null,
+    echartsOption: null,
 
     // Dashboard
     dashboardConfig: null,
     viewMode: 'single',
+    editingChartId: null,
 
     // History
     history: { past: [], future: [] },
@@ -375,7 +386,7 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             clearAllShelves: () => {
-                set({ encodings: [], vegaSpec: null });
+                set({ encodings: [], echartsOption: null });
             },
 
             swapChannels: (from: EncodingChannel, to: EncodingChannel) => {
@@ -428,7 +439,7 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({
                     chartConfig: { ...initialChartConfig, id: uuidv4() },
                     encodings: [],
-                    vegaSpec: null,
+                    echartsOption: null,
                     chartSummary: null,
                     aiInsights: [],
                 });
@@ -490,7 +501,8 @@ export const useVizStore = create<VizState & VizActions>()(
                         encodings,
                         aiChatHistory,
                         dashboardConfig,
-                        chartConfig?.mark || 'bar'
+                        chartConfig?.mark || 'bar',
+                        chartConfig?.title
                     );
 
                     // Handle based on intent
@@ -507,20 +519,38 @@ export const useVizStore = create<VizState & VizActions>()(
                     } else if (result.chartConfig) {
                         // Chart creation or modification
                         get().pushToHistory(); // Save for undo
-                        set({
-                            chartConfig: result.chartConfig,
-                            encodings: result.chartConfig.encodings,
-                        });
-                        get().regenerateSpec();
 
-                        const assistantMessage: AIMessage = {
-                            id: uuidv4(),
-                            role: 'assistant',
-                            content: result.textAnswer || `Created ${result.chartConfig.mark} chart`,
-                            timestamp: new Date(),
-                            resultType: 'chart',
-                        };
-                        get().addChatMessage(assistantMessage);
+                        // If we're in dashboard mode, add the chart to dashboard
+                        const { dashboardConfig, viewMode } = get();
+                        if (viewMode === 'dashboard' && dashboardConfig) {
+                            // Add chart to dashboard
+                            get().addChartToDashboard(result.chartConfig);
+
+                            const assistantMessage: AIMessage = {
+                                id: uuidv4(),
+                                role: 'assistant',
+                                content: result.textAnswer || `Added ${result.chartConfig.mark} chart to dashboard`,
+                                timestamp: new Date(),
+                                resultType: 'chart',
+                            };
+                            get().addChatMessage(assistantMessage);
+                        } else {
+                            // Normal chart creation in single mode
+                            set({
+                                chartConfig: result.chartConfig,
+                                encodings: result.chartConfig.encodings,
+                            });
+                            get().regenerateSpec();
+
+                            const assistantMessage: AIMessage = {
+                                id: uuidv4(),
+                                role: 'assistant',
+                                content: result.textAnswer || `Created ${result.chartConfig.mark} chart`,
+                                timestamp: new Date(),
+                                resultType: 'chart',
+                            };
+                            get().addChatMessage(assistantMessage);
+                        }
                     } else if (result.dashboardConfig) {
                         // Dashboard creation
                         set({
@@ -696,8 +726,8 @@ export const useVizStore = create<VizState & VizActions>()(
             // ----------------------------------------
 
             pushToHistory: () => {
-                const { encodings, chartConfig, vegaSpec, history } = get();
-                const entry: HistoryEntry = { encodings, chartConfig, vegaSpec };
+                const { encodings, chartConfig, echartsOption, history } = get();
+                const entry: HistoryEntry = { encodings, chartConfig, echartsOption };
 
                 set({
                     history: {
@@ -708,16 +738,16 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             undo: () => {
-                const { history, encodings, chartConfig, vegaSpec } = get();
+                const { history, encodings, chartConfig, echartsOption } = get();
                 if (history.past.length === 0) return;
 
                 const previous = history.past[history.past.length - 1];
-                const currentEntry: HistoryEntry = { encodings, chartConfig, vegaSpec };
+                const currentEntry: HistoryEntry = { encodings, chartConfig, echartsOption };
 
                 set({
                     encodings: previous.encodings,
                     chartConfig: previous.chartConfig,
-                    vegaSpec: previous.vegaSpec,
+                    echartsOption: previous.echartsOption,
                     history: {
                         past: history.past.slice(0, -1),
                         future: [currentEntry, ...history.future],
@@ -726,16 +756,16 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             redo: () => {
-                const { history, encodings, chartConfig, vegaSpec } = get();
+                const { history, encodings, chartConfig, echartsOption } = get();
                 if (history.future.length === 0) return;
 
                 const next = history.future[0];
-                const currentEntry: HistoryEntry = { encodings, chartConfig, vegaSpec };
+                const currentEntry: HistoryEntry = { encodings, chartConfig, echartsOption };
 
                 set({
                     encodings: next.encodings,
                     chartConfig: next.chartConfig,
-                    vegaSpec: next.vegaSpec,
+                    echartsOption: next.echartsOption,
                     history: {
                         past: [...history.past, currentEntry],
                         future: history.future.slice(1),
@@ -758,6 +788,178 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({ viewMode: mode });
             },
 
+            createDashboard: (title?: string) => {
+                const { chartConfig, encodings } = get();
+                const currentChart = { ...chartConfig, encodings };
+
+                const newDashboard: DashboardConfig = {
+                    id: uuidv4(),
+                    title: title || 'New Dashboard',
+                    charts: currentChart.encodings.length > 0 ? [currentChart] : [],
+                    layout: {
+                        cols: 2,
+                        rows: 10,  // Support up to 20 charts (2 cols x 10 rows)
+                        items: currentChart.encodings.length > 0 ? [{
+                            chartId: currentChart.id,
+                            col: 0,
+                            row: 0,
+                            colSpan: 1,
+                            rowSpan: 1,
+                        }] : [],
+                    },
+                    createdAt: new Date(),
+                };
+
+                set({
+                    dashboardConfig: newDashboard,
+                    viewMode: 'dashboard',
+                });
+            },
+
+            deleteDashboard: () => {
+                set({
+                    dashboardConfig: null,
+                    viewMode: 'single',
+                    // Reset to a fresh chart
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
+                    dashboardSummary: null,
+                });
+            },
+
+            renameDashboard: (title: string) => {
+                const { dashboardConfig } = get();
+                if (dashboardConfig) {
+                    set({
+                        dashboardConfig: { ...dashboardConfig, title },
+                    });
+                }
+            },
+
+            addChartToDashboard: (config?: ChartConfig) => {
+                const { dashboardConfig, chartConfig, encodings } = get();
+                if (!dashboardConfig) return;
+
+                // Use provided config or current chart
+                const newChart = config || {
+                    ...chartConfig,
+                    id: uuidv4(),
+                    encodings: [...encodings],
+                };
+
+                const updatedDashboard: DashboardConfig = {
+                    ...dashboardConfig,
+                    charts: [...dashboardConfig.charts, newChart],
+                    layout: {
+                        ...dashboardConfig.layout,
+                        items: [
+                            ...dashboardConfig.layout.items,
+                            {
+                                chartId: newChart.id,
+                                col: dashboardConfig.charts.length % dashboardConfig.layout.cols,
+                                row: Math.floor(dashboardConfig.charts.length / dashboardConfig.layout.cols),
+                                colSpan: 1,
+                                rowSpan: 1,
+                            },
+                        ],
+                    },
+                };
+
+                set({ dashboardConfig: updatedDashboard });
+            },
+
+            removeChartFromDashboard: (chartId: string) => {
+                const { dashboardConfig } = get();
+                if (!dashboardConfig) return;
+
+                const updatedCharts = dashboardConfig.charts.filter(c => c.id !== chartId);
+                const updatedItems = dashboardConfig.layout.items.filter(i => i.chartId !== chartId);
+
+                // If no charts left, delete the dashboard entirely
+                if (updatedCharts.length === 0) {
+                    get().deleteDashboard();
+                    return;
+                }
+
+                set({
+                    dashboardConfig: {
+                        ...dashboardConfig,
+                        charts: updatedCharts,
+                        layout: {
+                            ...dashboardConfig.layout,
+                            items: updatedItems,
+                        },
+                    },
+                });
+            },
+
+            duplicateChartInDashboard: (chartId: string) => {
+                const { dashboardConfig } = get();
+                if (!dashboardConfig) return;
+
+                const chartToDuplicate = dashboardConfig.charts.find(c => c.id === chartId);
+                if (!chartToDuplicate) return;
+
+                const duplicatedChart: ChartConfig = {
+                    ...chartToDuplicate,
+                    id: uuidv4(),
+                    title: `${chartToDuplicate.title || 'Chart'} (Copy)`,
+                };
+
+                get().addChartToDashboard(duplicatedChart);
+            },
+
+            editChartFromDashboard: (chartId: string) => {
+                const { dashboardConfig } = get();
+                if (!dashboardConfig) return;
+
+                const chartToEdit = dashboardConfig.charts.find(c => c.id === chartId);
+                if (!chartToEdit) return;
+
+                // Load chart into editor and track which chart is being edited
+                set({
+                    chartConfig: { ...chartToEdit },
+                    encodings: [...chartToEdit.encodings],
+                    viewMode: 'single',
+                    editingChartId: chartId,  // Track which chart we're editing
+                    chartSummary: null,
+                    aiInsights: [],
+                });
+                get().regenerateSpec();
+            },
+
+            updateChartInDashboard: (chartId: string) => {
+                const { dashboardConfig, chartConfig, encodings } = get();
+                if (!dashboardConfig) return;
+
+                const updatedCharts = dashboardConfig.charts.map(c => {
+                    if (c.id === chartId) {
+                        return { ...chartConfig, id: chartId, encodings: [...encodings] };
+                    }
+                    return c;
+                });
+
+                set({
+                    dashboardConfig: { ...dashboardConfig, charts: updatedCharts },
+                });
+            },
+
+            syncAndReturnToDashboard: () => {
+                const { editingChartId } = get();
+
+                // If we were editing a chart from dashboard, sync changes
+                if (editingChartId) {
+                    get().updateChartInDashboard(editingChartId);
+                }
+
+                // Return to dashboard and clear editing state
+                set({
+                    viewMode: 'dashboard',
+                    editingChartId: null,
+                });
+            },
+
             // ----------------------------------------
             // Sidebar Actions
             // ----------------------------------------
@@ -774,16 +976,16 @@ export const useVizStore = create<VizState & VizActions>()(
             // Spec Actions
             // ----------------------------------------
 
-            updateSpecFromJson: (spec: VegaLiteSpec) => {
-                set({ vegaSpec: spec });
-                // TODO: Parse spec back to encodings for bi-directional editing
+            updateSpecFromJson: (option: EChartsOption) => {
+                set({ echartsOption: option });
+                // TODO: Parse option back to encodings for bi-directional editing
             },
 
             regenerateSpec: () => {
                 const { dataset, chartConfig, encodings } = get();
 
                 if (!dataset || encodings.length === 0) {
-                    set({ vegaSpec: null });
+                    set({ echartsOption: null });
                     return;
                 }
 
@@ -792,8 +994,8 @@ export const useVizStore = create<VizState & VizActions>()(
                     encodings,
                 };
 
-                const spec = buildVegaLiteSpec(configWithEncodings, dataset.data);
-                set({ vegaSpec: spec });
+                const option = buildEChartsOption(configWithEncodings, dataset.data);
+                set({ echartsOption: option });
 
                 // Update suggestions based on current encodings
                 const suggestions = getChartSuggestions(encodings).map((s) => ({
@@ -867,7 +1069,7 @@ export const selectIsFieldUsed = (fieldId: string) => (state: VizState) =>
     state.encodings.some(e => e.field.id === fieldId);
 
 // Chart Selectors
-export const selectVegaSpec = (state: VizState) => state.vegaSpec;
+export const selectEChartsOption = (state: VizState) => state.echartsOption;
 export const selectChartConfig = (state: VizState) => state.chartConfig;
 export const selectCanvasView = (state: VizState) => state.canvasView;
 

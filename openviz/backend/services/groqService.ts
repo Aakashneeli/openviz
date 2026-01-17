@@ -229,6 +229,101 @@ function sanitizeOutput(text: string): string {
 }
 
 /**
+ * Format current chart context for AI prompts
+ * Provides detailed description of what the current chart shows
+ */
+function formatChartContext(
+    chartTitle: string | undefined,
+    mark: MarkType,
+    encodings: ShelfPlacement[]
+): string {
+    if (encodings.length === 0) {
+        return 'No chart currently configured. The user has not created any chart yet.';
+    }
+
+    const xEnc = encodings.find(e => e.channel === 'x');
+    const yEnc = encodings.find(e => e.channel === 'y');
+    const colorEnc = encodings.find(e => e.channel === 'color');
+    const sizeEnc = encodings.find(e => e.channel === 'size');
+    const thetaEnc = encodings.find(e => e.channel === 'theta');
+
+    const parts: string[] = [];
+    parts.push(`Current Chart Type: ${mark}`);
+    if (chartTitle) parts.push(`Chart Title: "${chartTitle}"`);
+
+    if (xEnc) {
+        let xDesc = `X-Axis: ${xEnc.field.name} (${xEnc.field.type})`;
+        if (xEnc.aggregate) xDesc += ` - aggregated by ${xEnc.aggregate}`;
+        parts.push(xDesc);
+    }
+
+    if (yEnc) {
+        let yDesc = `Y-Axis: ${yEnc.field.name} (${yEnc.field.type})`;
+        if (yEnc.aggregate) yDesc += ` - aggregated by ${yEnc.aggregate}`;
+        parts.push(yDesc);
+    }
+
+    if (thetaEnc) {
+        parts.push(`Slice Values: ${thetaEnc.field.name} (for pie/donut chart)`);
+    }
+
+    if (colorEnc) {
+        parts.push(`Color Grouping: ${colorEnc.field.name} (${colorEnc.field.type})`);
+    }
+
+    if (sizeEnc) {
+        parts.push(`Size Mapping: ${sizeEnc.field.name} (${sizeEnc.field.type})`);
+    }
+
+    // Add a human-readable description
+    if (xEnc && yEnc) {
+        const aggText = yEnc.aggregate ? `${yEnc.aggregate} of ` : '';
+        parts.push(`\nThis chart shows: ${aggText}${yEnc.field.name} by ${xEnc.field.name}`);
+    }
+
+    return parts.join('\n');
+}
+
+/**
+ * Format dashboard context for AI prompts
+ * Provides overview of all charts in the dashboard
+ */
+function formatDashboardContext(dashboard: DashboardConfig | null): string {
+    if (!dashboard) {
+        return 'No dashboard currently active. The user is working in single chart mode.';
+    }
+
+    const lines: string[] = [];
+    lines.push(`Dashboard: "${dashboard.title || 'Untitled Dashboard'}"`);
+    lines.push(`Total Charts: ${dashboard.charts.length}`);
+    lines.push('');
+
+    if (dashboard.charts.length === 0) {
+        lines.push('The dashboard is empty - no charts have been added yet.');
+    } else {
+        lines.push('Charts in Dashboard:');
+        dashboard.charts.forEach((chart, i) => {
+            const xEnc = chart.encodings.find(e => e.channel === 'x');
+            const yEnc = chart.encodings.find(e => e.channel === 'y');
+            const title = chart.title || `${chart.mark} Chart`;
+
+            let description = `  ${i + 1}. "${title}" (${chart.mark})`;
+            if (xEnc && yEnc) {
+                const aggText = yEnc.aggregate ? `${yEnc.aggregate} of ` : '';
+                description += `\n     Shows: ${aggText}${yEnc.field.name} by ${xEnc.field.name}`;
+            } else if (chart.encodings.length > 0) {
+                const fields = chart.encodings.map(e => e.field.name).join(', ');
+                description += `\n     Uses fields: ${fields}`;
+            }
+            lines.push(description);
+        });
+    }
+
+    return lines.join('\n');
+}
+
+
+/**
  * Enhanced intent detection with reasoning
  * Returns both intent and explanation of why
  */
@@ -256,18 +351,21 @@ export async function detectIntent(
    - Keywords: what, how many, average, sum, count, tell me, explain the data
    - Examples: "What's the average sales?", "How many records?", "Summarize this data"
 
-2. **chart** - User wants to CREATE a NEW chart from scratch
-   - Keywords: show, create, make, plot, visualize, chart, graph
-   - Examples: "Show sales over time", "Create a bar chart of revenue by region"
+2. **chart** - User wants to CREATE a NEW SINGLE chart (any specific visualization type)
+   - Chart types: bar, line, scatter, pie, area, histogram, radar, heatmap, treemap, sunburst, funnel, gauge, sankey, boxplot, candlestick, waterfall, parallel, calendar, tree, network
+   - Keywords: show, create, make, plot, visualize, chart, graph, histogram, distribution
+   - Examples: "Show sales over time", "Create a bar chart", "Create a histogram for this data", "Make a pie chart"
+   - **IMPORTANT**: If user mentions ANY specific chart type (like histogram, pie, bar), this is ALWAYS "chart", not "dashboard"
 
 3. **modify** - User wants to CHANGE the CURRENT chart (only when a chart exists)
    - Keywords: make it, change, switch, use different, bigger, smaller, color
    - Examples: "Make it bigger", "Change to line chart", "Use blue colors", "Sort by value"
    - **IMPORTANT**: Only valid when hasCurrentChart=true
 
-4. **dashboard** - User wants to CREATE a NEW multi-chart dashboard
-   - Keywords: dashboard, overview, multiple charts, collection
-   - Examples: "Create a dashboard", "Show me an overview", "Build a dashboard about sales"
+4. **dashboard** - User wants to CREATE a NEW multi-chart dashboard (MULTIPLE visualizations together)
+   - Keywords: dashboard, overview, multiple charts, collection, summary view
+   - Examples: "Create a dashboard", "Show me an overview of everything", "Build a multi-chart view"
+   - **IMPORTANT**: Only use this if user explicitly asks for dashboard/overview. If they mention a specific chart type, use "chart" instead
 
 5. **modify_dashboard** - User wants to ADD/REMOVE charts from EXISTING dashboard
    - Keywords: add, remove, delete, another, one more, get rid of
@@ -356,8 +454,17 @@ Respond with JSON:
 function fallbackIntentDetection(query: string, hasCurrentChart: boolean): AIIntent {
     const lowerQuery = query.toLowerCase();
 
-    if (/\bdashboard\b|\boverview\b/i.test(lowerQuery)) return 'dashboard';
-    if (/\b(chart|plot|graph|bar|line|scatter)\b/i.test(lowerQuery)) return 'chart';
+    // Dashboard patterns - be more specific to avoid false positives
+    if (/\b(dashboard|overview)\b/i.test(lowerQuery) && !/\b(histogram|bar|line|scatter|pie|chart|plot|graph|show|create)\b/i.test(lowerQuery.replace(/dashboard|overview/gi, ''))) {
+        return 'dashboard';
+    }
+
+    // Chart type keywords - comprehensive list
+    const chartTypes = /\b(chart|plot|graph|bar|line|scatter|pie|area|radar|heatmap|treemap|sunburst|funnel|gauge|sankey|boxplot|candlestick|histogram|waterfall|parallel|calendar|tree|network|distribution|frequency)\b/i;
+    if (chartTypes.test(lowerQuery) || /\b(show|visualize|display|create)\s+(a|the|me)?\s*\w*\s*(of|by|for)/i.test(lowerQuery)) {
+        return 'chart';
+    }
+
     if (/^(make it|change|switch to)/i.test(lowerQuery) && hasCurrentChart) return 'modify';
     if (/^(why|explain)/i.test(lowerQuery)) return 'explain';
     if (/\?$|^what|^how|^which|average|sum|count/i.test(lowerQuery)) return 'question';
@@ -376,7 +483,8 @@ export async function processAIQuery(
     currentEncodings: ShelfPlacement[],
     chatHistory: AIMessage[] = [],
     currentDashboard: DashboardConfig | null = null,
-    currentMark: MarkType = 'bar'
+    currentMark: MarkType = 'bar',
+    currentChartTitle?: string
 ): Promise<AIQueryResult> {
     const hasCurrentChart = currentEncodings.length > 0;
     const hasDashboard = currentDashboard !== null;
@@ -387,9 +495,13 @@ export async function processAIQuery(
 
     console.log(`[AI] Intent: ${intent} | Reasoning: ${reasoning}`);
 
+    // Build visualization context for question answering
+    const chartContext = formatChartContext(currentChartTitle, currentMark, currentEncodings);
+    const dashboardContext = formatDashboardContext(currentDashboard);
+
     switch (intent) {
         case 'question':
-            return processDataQuestion(query, dataProfile, fields, data, chatHistory);
+            return processDataQuestion(query, dataProfile, fields, data, chatHistory, chartContext, dashboardContext);
         case 'chart':
             return processChartRequest(query, dataProfile, fields, chatHistory);
         case 'modify':
@@ -411,13 +523,16 @@ export async function processAIQuery(
 
 /**
  * Answer a data question using computed statistics with conversation context
+ * Now includes chart and dashboard awareness for better Q&A
  */
 async function processDataQuestion(
     query: string,
     dataProfile: DataProfile,
     _fields: FieldInfo[],
     data: DataRecord[],
-    chatHistory: AIMessage[] = []
+    chatHistory: AIMessage[] = [],
+    chartContext: string = '',
+    dashboardContext: string = ''
 ): Promise<AIQueryResult> {
     try {
         const groq = getGroqClient();
@@ -428,20 +543,32 @@ async function processDataQuestion(
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
         ).join('\n');
 
-        const prompt = `You are a helpful data analyst assistant. Answer the user's question about the dataset.
+        const prompt = `You are a helpful data analyst assistant for a data visualization tool called OpenViz. Answer the user's question about the data, charts, or dashboard.
 
-Dataset Overview:
+**DATASET OVERVIEW:**
 ${context}
 
-${recentHistory ? `Recent Conversation:
+**CURRENT CHART:**
+${chartContext || 'No chart currently configured.'}
+
+**DASHBOARD STATUS:**
+${dashboardContext || 'No dashboard active.'}
+
+${recentHistory ? `**RECENT CONVERSATION:**
 ${recentHistory}
 
-` : ''}Current Question: "${query}"
+` : ''}**USER QUESTION:** "${query}"
 
-IMPORTANT: 
-- If this is a follow-up question (like "elaborate", "tell me more", "be more specific"), provide more details based on the previous conversation.
-- For general questions about the data, give a comprehensive summary.
-- For specific statistical questions, provide accurate numbers from the stats.
+**INSTRUCTIONS:**
+You can answer questions about:
+1. **Data Questions** - statistics, values, patterns in the data
+2. **Chart Questions** - "What does this chart show?", "What is the X-axis?", "What fields are being visualized?"
+3. **Dashboard Questions** - "What charts are in my dashboard?", "How many charts do I have?", "What does each chart show?"
+
+- If asking about the chart (e.g., "what does this chart show?"), describe the current visualization based on the chart context above
+- If asking about the dashboard (e.g., "what's in my dashboard?"), describe the charts using the dashboard status above
+- For follow-up questions (like "elaborate", "tell me more"), provide more details based on the previous conversation
+- For statistical questions about the data, provide accurate numbers
 
 If the question requires calculating specific values (sum, average, max, min, count), respond with JSON:
 {
@@ -580,17 +707,23 @@ async function processChartRequest(
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
         ).join('\n');
 
-        // Generate detailed field info - just list names and types for now
-        const fieldDetails = fields.map(f =>
-            `- ${f.name} (${f.type})`
-        ).join('\n');
+        // Generate detailed field info with sample values for better understanding
+        const fieldDetails = fields.map(f => {
+            const fieldProfile = dataProfile.fields.find((fp: { name: string }) => fp.name === f.name);
+            const samples = fieldProfile?.exampleValues?.slice(0, 3).join(', ') || '';
+            const statsInfo = f.type === 'quantitative'
+                ? ` [numeric: can be summed/averaged]`
+                : f.type === 'temporal'
+                    ? ` [date/time field]`
+                    : ` [categorical: ${fieldProfile?.uniqueCount || '?'} unique values]`;
+            return `- "${f.name}" (${f.type})${statsInfo}${samples ? ` e.g.: ${samples}` : ''}`;
+        }).join('\n');
 
-        const prompt = `You are an expert data visualization assistant. Analyze the user's natural language request and create the BEST chart configuration.
+        const prompt = `You are an expert data visualization assistant. Create a meaningful chart configuration.
 
-**DATASET INFORMATION:**
-${context}
+**DATASET:** ${dataProfile.rowCount} rows, ${fields.length} fields
 
-**AVAILABLE FIELDS:**
+**AVAILABLE FIELDS (use these names EXACTLY):**
 ${fieldDetails}
 
 ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER REQUEST:** "${query}"
@@ -607,6 +740,20 @@ ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER R
 - **point** (scatter): Correlation between two quantitative variables
 - **area**: Trends with emphasis on magnitude
 - **arc** (pie): Part-to-whole relationships (use sparingly)
+- **histogram**: Distribution of a single quantitative variable (frequency bins)
+- **boxplot**: Statistical distribution showing quartiles
+- **candlestick**: Financial OHLC data (open, high, low, close)
+- **radar**: Multi-dimensional comparison (multiple metrics per item)
+- **heatmap**: Intensity matrix between two categorical variables
+- **treemap**: Hierarchical data as nested rectangles
+- **sunburst**: Hierarchical data as concentric rings
+- **funnel**: Stage-based conversion flow
+- **gauge**: Single KPI/metric display
+- **sankey**: Flow/relationship diagram
+- **waterfall**: Cumulative changes (gains/losses)
+- **parallel**: Multi-dimensional data with parallel axes
+- **calendar**: Time-based heatmap over calendar
+- **tree**: Hierarchical tree structure
 
 **FIELD MATCHING TIPS:**
 - "sales", "revenue", "amount" → Look for fields containing these words
@@ -620,10 +767,11 @@ ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER R
 - For "count" or "number of", use aggregate: "count"
 - For "average" or "mean", use aggregate: "mean"
 - For "total" or "sum", use aggregate: "sum"
+- For histogram → bin: true on the quantitative field
 
 **OUTPUT FORMAT (JSON only):**
 {
-  "mark": "bar|line|point|area|arc",
+  "mark": "bar|line|point|area|arc|histogram|boxplot|candlestick|radar|heatmap|treemap|sunburst|funnel|gauge|sankey|waterfall|parallel|calendar|tree",
   "encodings": [
     {
       "channel": "x|y|theta|color|size",
@@ -1069,16 +1217,34 @@ async function processModifyDashboardRequest(
     try {
         const groq = getGroqClient();
 
-        // Describe current dashboard
-        const currentCharts = currentDashboard.charts.map((c, i) =>
-            `${i + 1}. ${c.title || c.mark + ' chart'}`
-        ).join('\n');
+        // Describe current dashboard with details
+        const currentCharts = currentDashboard.charts.map((c, i) => {
+            const xEnc = c.encodings.find(e => e.channel === 'x');
+            const yEnc = c.encodings.find(e => e.channel === 'y');
+            let desc = `${i + 1}. "${c.title || c.mark + ' chart'}" (${c.mark})`;
+            if (xEnc && yEnc) {
+                desc += ` - Shows ${yEnc.field.name} by ${xEnc.field.name}`;
+            }
+            return desc;
+        }).join('\n');
+
+        // Get list of already used chart types and field combinations
+        const usedChartTypes = currentDashboard.charts.map(c => c.mark);
+        const usedFieldCombos = currentDashboard.charts.map(c => {
+            const xEnc = c.encodings.find(e => e.channel === 'x');
+            const yEnc = c.encodings.find(e => e.channel === 'y');
+            return xEnc && yEnc ? `${xEnc.field.name}+${yEnc.field.name}` : '';
+        }).filter(Boolean);
 
         const prompt = `You are modifying an existing dashboard. Analyze the user's request carefully and determine what changes to make.
 
 **CURRENT DASHBOARD:** "${currentDashboard.title}"
 **CURRENT CHARTS (${currentDashboard.charts.length} total):**
-${currentCharts}
+${currentCharts || 'No charts yet.'}
+
+**ALREADY USED:** 
+- Chart types: ${usedChartTypes.length > 0 ? usedChartTypes.join(', ') : 'None'}
+- Field combinations: ${usedFieldCombos.length > 0 ? usedFieldCombos.join(', ') : 'None'}
 
 **AVAILABLE FIELDS:** ${fields.map(f => `${f.name} (${f.type})`).join(', ')}
 
@@ -1087,7 +1253,11 @@ ${currentCharts}
 **SUPPORTED ACTIONS:**
 
 1. **add** - Add ONE new chart to the dashboard
-   - Use when: "add a bar chart", "include a pie chart"
+   - Use when: "add a bar chart", "include a pie chart", "add more", "another chart"
+   - **CRITICAL**: When adding, create VARIETY!
+     - Use a DIFFERENT chart type than already exists (if possible)
+     - Use DIFFERENT field combinations for X/Y axes
+     - If user doesn't specify a type, pick something NOT already in the dashboard
 
 2. **remove** - Remove ONE specific chart by index
    - Use when: "remove chart 2", "delete the first one"
@@ -1095,18 +1265,17 @@ ${currentCharts}
 
 3. **removeAll** - Remove ALL charts from dashboard
    - Use when: "remove all charts", "delete everything", "clear the dashboard"
-   - CRITICAL: If user says "all", "everything", "clear", "start over" → Use this!
 
 4. **replace** - Remove all charts AND add new ones
-   - Use when: "replace with X", "change all charts to Y", "I don't like these, use different ones"
+   - Use when: "replace with X", "change all charts to Y"
    - Include new chart configs in newCharts array
 
-**DETECTION RULES:**
-- "all", "everything", "every chart" → removeAll or replace
-- "replace", "change all", "I don't like these" → replace  
-- "clear", "start over", "delete everything" → removeAll
-- "add", "include", "put" → add
-- "remove chart X", "delete the first" → remove (single)
+**CHART TYPE GUIDE (pick something NOT already used):**
+- bar: Categorical comparison
+- line: Trends over time
+- point (scatter): Correlation between two numbers
+- area: Magnitude over time
+- arc (pie): Part-to-whole breakdown
 
 **OUTPUT FORMAT (JSON only):**
 {
@@ -1114,24 +1283,21 @@ ${currentCharts}
   "reasoning": "Brief explanation of what you understood from the request",
   "chart": {
     "mark": "bar|line|point|area|arc",
-    "encodings": [...],
-    "title": "chart title"
+    "encodings": [
+      {"channel": "x", "fieldName": "field name"},
+      {"channel": "y", "fieldName": "field name", "aggregate": "sum|mean|count"}
+    ],
+    "title": "descriptive chart title"
   },
   "removeIndex": 0,
-  "newCharts": [
-    {
-      "mark": "bar",
-      "encodings": [...],
-      "title": "chart title"
-    }
-  ]
+  "newCharts": [...]
 }
 
-**IMPORTANT:**
-- For "add" action: provide "chart" object
-- For "remove" action: provide "removeIndex" (0-based)
-- For "removeAll" action: ONLY set action, nothing else needed
-- For "replace" action: provide "newCharts" array (1-4 charts)
+**CRITICAL RULES FOR ADD ACTION:**
+- AVOID using the same chart type as already exists in dashboard
+- AVOID using the same field combination (X+Y) as existing charts
+- Pick INTERESTING field combinations that show different aspects of data
+- Use appropriate aggregations (sum, mean, count) for quantitative Y-axis fields
 
 Respond with ONLY valid JSON.`;
 
@@ -1373,7 +1539,7 @@ Respond with JSON:
 // ============================================
 
 /**
- * Build ChartConfig from AI response with defensive checks
+ * Build ChartConfig from AI response with defensive checks and fuzzy field matching
  */
 function buildChartConfig(
     aiResponse: {
@@ -1391,6 +1557,50 @@ function buildChartConfig(
 ): ChartConfig {
     const encodings: ShelfPlacement[] = [];
 
+    // Helper: Find field with fuzzy matching
+    const findField = (name: string): FieldInfo | undefined => {
+        if (!name) return undefined;
+        const lowerName = name.toLowerCase().trim();
+
+        // Exact match (case-insensitive)
+        let field = fields.find(f => f.name.toLowerCase() === lowerName);
+        if (field) return field;
+
+        // Contains match
+        field = fields.find(f => f.name.toLowerCase().includes(lowerName));
+        if (field) return field;
+
+        // Reverse contains (field name is in the input)
+        field = fields.find(f => lowerName.includes(f.name.toLowerCase()));
+        if (field) return field;
+
+        // Word boundary match (any word matches)
+        const words = lowerName.split(/\s+|_|-/);
+        for (const word of words) {
+            if (word.length < 2) continue;
+            field = fields.find(f => f.name.toLowerCase().includes(word));
+            if (field) return field;
+        }
+
+        return undefined;
+    };
+
+    // Helper: Get recommended default fields based on data types
+    const getDefaultXField = (): FieldInfo | undefined => {
+        // Prefer nominal/categorical for X
+        return fields.find(f => f.type === 'nominal')
+            || fields.find(f => f.type === 'ordinal')
+            || fields.find(f => f.type === 'temporal')
+            || fields[0];
+    };
+
+    const getDefaultYField = (): FieldInfo | undefined => {
+        // Prefer quantitative for Y
+        return fields.find(f => f.type === 'quantitative')
+            || fields[1]
+            || fields[0];
+    };
+
     // Defensive check for encodings array
     const responseEncodings = Array.isArray(aiResponse?.encodings)
         ? aiResponse.encodings
@@ -1399,16 +1609,71 @@ function buildChartConfig(
     for (const enc of responseEncodings) {
         // Handle both 'fieldName' and 'field' as possible keys
         const fieldNameFromResponse = enc.fieldName || enc.field || '';
-        const field = fields.find(f =>
-            f.name.toLowerCase() === fieldNameFromResponse.toLowerCase()
-        );
+        const field = findField(fieldNameFromResponse);
+
         if (field && enc.channel) {
+            // Auto-add aggregation for quantitative fields on Y axis if not specified
+            let aggregate = enc.aggregate as ShelfPlacement['aggregate'];
+            if (!aggregate && field.type === 'quantitative' && (enc.channel === 'y' || enc.channel === 'theta')) {
+                aggregate = 'sum';
+            }
+
             encodings.push({
                 id: uuidv4(),
                 field,
                 channel: enc.channel,
-                aggregate: enc.aggregate as ShelfPlacement['aggregate'],
+                aggregate,
                 bin: enc.bin,
+            });
+        } else if (enc.channel && !field) {
+            console.warn(`[AI] Field not found: "${fieldNameFromResponse}" - skipping`);
+        }
+    }
+
+    // Validation: ensure we have at least x and y, or theta for pie charts
+    const hasX = encodings.some(e => e.channel === 'x');
+    const hasY = encodings.some(e => e.channel === 'y');
+    const hasTheta = encodings.some(e => e.channel === 'theta');
+    const isPieChart = aiResponse?.mark === 'arc';
+
+    // Add default encodings if missing
+    if (!isPieChart && (!hasX || !hasY)) {
+        console.warn('[AI] Missing X or Y encoding, adding defaults');
+
+        if (!hasX) {
+            const defaultX = getDefaultXField();
+            if (defaultX && !encodings.some(e => e.field.id === defaultX.id)) {
+                encodings.push({
+                    id: uuidv4(),
+                    field: defaultX,
+                    channel: 'x',
+                });
+            }
+        }
+
+        if (!hasY) {
+            const defaultY = getDefaultYField();
+            if (defaultY && !encodings.some(e => e.field.id === defaultY.id)) {
+                encodings.push({
+                    id: uuidv4(),
+                    field: defaultY,
+                    channel: 'y',
+                    aggregate: defaultY.type === 'quantitative' ? 'sum' : undefined,
+                });
+            }
+        }
+    }
+
+    // For pie charts, ensure theta is set
+    if (isPieChart && !hasTheta) {
+        console.warn('[AI] Pie chart missing theta, adding default');
+        const quantField = fields.find(f => f.type === 'quantitative');
+        if (quantField) {
+            encodings.push({
+                id: uuidv4(),
+                field: quantField,
+                channel: 'theta' as EncodingChannel,
+                aggregate: 'sum',
             });
         }
     }

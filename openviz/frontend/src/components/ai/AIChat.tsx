@@ -76,22 +76,28 @@ export function AIChat() {
     };
 
     return (
-        <AnimatePresence>
+        <AnimatePresence mode="wait">
             {!isOpen ? (
                 <motion.button
-                    layoutId="ai-chat-container"
+                    key="ai-button"
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: "easeOut" }}
                     onClick={() => setAIChatOpen(true)}
-                    className="group relative flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 bg-[length:200%_auto] text-white font-medium shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-white/20 overflow-hidden hover:scale-105 active:scale-95 transition-all animate-gradient"
+                    title="Ask AI"
+                    className="group relative flex items-center justify-center w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 border border-white/20 hover:scale-105 active:scale-95 transition-transform"
                 >
-                    <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-1000 rotate-12 -skew-x-12 origin-bottom-left" />
-                    <Sparkles className="w-4 h-4 animate-pulse" />
-                    <span className="text-sm tracking-wide">Ask AI</span>
-                    <div className="absolute -bottom-1 -left-1 w-full h-full bg-indigo-500 blur-xl opacity-40 -z-10" />
+                    <Sparkles className="w-4.5 h-4.5" />
                 </motion.button>
             ) : (
                 <motion.div
-                    layoutId="ai-chat-container"
-                    className="w-[380px] h-[500px] bg-[#0A0A0B]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden ring-1 ring-white/5"
+                    key="ai-panel"
+                    initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="w-[380px] h-[500px] bg-[#0A0A0B]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden ring-1 ring-white/5"
                 >
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-gradient-to-r from-indigo-500/10 to-purple-500/10">

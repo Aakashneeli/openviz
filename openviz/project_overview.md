@@ -3,7 +3,7 @@
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
 > 
-> **Last Updated**: January 5, 2026
+> **Last Updated**: January 9, 2026
 
 ---
 
@@ -31,6 +31,7 @@
 | **Vega-Lite** | 6.4.1 | High-Level Chart Grammar |
 | **react-vega** | 8.0.0 | React Vega Integration |
 | **vega-embed** | 7.1.0 | Embedding & Interactivity |
+| **react-echarts** | 5.6.0 | **Primary Chart Renderer** (New) |
 | **Groq SDK** | 0.37.0 | Ultra-fast AI Inference |
 | **Arquero** | 8.0.3 | Data Transformation & Querying |
 | **PapaParse** | 5.5.3 | CSV/TSV Parsing |
@@ -89,7 +90,8 @@ openviz/
 ├── package.json                 # Root workspace scripts
 ├── .env                         # Environment variables
 ├── README.md
-└── project_overview.md          # This document
+├── project_overview.md          # This document
+└── tsconfig.json                # Root TS config
 ```
 
 **Import Aliases:**
@@ -102,8 +104,8 @@ The entire application state is centralized in a single Zustand store with DevTo
 **State Slices:**
 - **Data Slice**: Raw data (`dataset`), inferred schema (`fields`), `uploadStatus`, and `dataProfile`.
 - **Encoding Slice**: Array of `ShelfPlacement` objects mapping `Field -> Channel`.
-- **Chart Slice**: High-level config (`chartConfig`), generated `vegaSpec`, mark type, title.
-- **Dashboard Slice**: `dashboardConfig` for multi-chart layouts, `viewMode` (single/dashboard).
+- **Chart Slice**: High-level config (`chartConfig`), generated `echartsOption`, mark type, title.
+- **Dashboard Slice**: `dashboardConfig` for multi-chart layouts, `viewMode` (single/dashboard), `editingChartId`.
 - **AI Slice**: `aiQuery`, `aiLoading`, `aiSuggestions`, `aiInsights`, `aiChatHistory`.
 - **UI Slice**: `canvasView`, `leftSidebarOpen`, `rightSidebarOpen`, `selectedFieldId`, `isDragging`.
 - **History Slice**: `past` and `future` arrays for undo/redo functionality.
@@ -114,6 +116,8 @@ The entire application state is centralized in a single Zustand store with DevTo
 - `processAIQuery(query)` - Process natural language with intent detection
 - `undo()` / `redo()` - History navigation
 - `setViewMode('single' | 'dashboard')` - Toggle between views
+- `editChartFromDashboard(id)` - Edit specific chart
+- `updateChartInDashboard(id)` - Sync edits back to dashboard
 
 ---
 
@@ -133,8 +137,8 @@ The entire application state is centralized in a single Zustand store with DevTo
 ### 3.2. Visual Encoding (The "Deck")
 Instead of writing code, users drag fields from the **Data Shelf** to the **Encoding Deck**.
 - **Logic**: When a field is dropped on the "X-Axis" zone, a `ShelfPlacement` is added to the store.
-- **Compilation**: `vegaSpecBuilder.ts` listens to store changes. It iterates through all active encodings and constructs a valid Vega-Lite JSON specification.
-- **Rendering**: The JSON is passed to `vega-embed` which renders the SVG/Canvas interactions.
+- **Compilation**: `echartsSpecBuilder.ts` (conceptual) listens to store changes. It iterates through all active encodings and constructs a valid ECharts option object.
+- **Rendering**: The option is passed to `echarts-for-react` which renders the Canvas interactions.
 
 ---
 
@@ -154,15 +158,17 @@ We use **Groq** for ultra-low latency inference, crucial for the "real-time" fee
 |----------|---------|
 | `detectIntent(query, ...)` | LLM-based intent intent classification with **reasoning** |
 | `processAIQuery(...)` | Main entry point for all AI queries |
-| `processDataQuestion(...)` | Q&A with Arquero for 100% accuracy |
-| `processChartRequest(...)` | Single chart generation with smarter field inference |
-| `processModifyRequest(...)` | **ENHANCED** Contextual chart modification handling 7 types of visual changes |
+| `processDataQuestion(...)` | Q&A with Arquero stats + **Available Chart/Dashboard Context** |
+| `processChartRequest(...)` | Single chart generation with **Fuzzy Field Matching** & **Validation** |
+| `processModifyRequest(...)` | Contextual chart modification handling 7 types of visual changes |
 | `processDashboardRequest(...)` | Multi-chart dashboard generation |
-| `processModifyDashboardRequest(...)` | **ENHANCED** Bulk operations (add, remove, removeAll, replace) |
+| `processModifyDashboardRequest(...)` | **ENHANCED** Bulk operations with **Duplicate Avoidance** |
 | `processExplainRequest(...)` | "Why?" questions with analysis |
 | `generateDataInsights(...)` | Heuristic + AI insight generation |
 | `generateChartSummary(...)` | Generate AI summary for a chart |
 | `generateDashboardSummary(...)` | Generate AI summary for dashboard |
+| `formatChartContext(...)` | **NEW** helper to describe current chart to AI |
+| `formatDashboardContext(...)` | **NEW** helper to describe entire dashboard to AI |
 
 ### 4.2. Intent Classification
 The AI detects user intent to route queries appropriately. All responses now include **reasoning** for transparency.
@@ -216,18 +222,25 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 
 ### 💻 Hybrid Editor
 - **Visual Mode**: Drag-and-drop builder for non-technical users.
-- **Code Mode**: Direct access to the Vega-Lite JSON using Monaco Editor.
+- **Code Mode**: Direct access to the ECharts option JSON (View-only for now).
 - **AI Mode**: Conversational interface to manipulate the chart.
 
 ### 📊 Dashboard Engine
 - **Single View**: Focus on one chart for deep analysis.
-- **Dashboard View**: CSS Grid-based layout engine allowing multiple charts to coexist. AI can generate full dashboards ("Give me a KPI summary") by creating multiple chart configurations at once.
+- **Dashboard View**: Grid-based layout engine allowing up to 20 charts.
+- **Auto-Suggest**: "Magic" button to automatically add interesting charts based on data context.
+- **Smart Layout**: Auto-scrolls and adjusts grid based on number of charts.
 
 ### 🎨 Design System
 - **Theme**: "Deep Space" Dark Mode (Zinc-950 backgrounds, Indigo-500/Purple-500 accents).
 - **Components**: Built on headless Radix UI primitives for accessibility, styled with Tailwind.
 - **Glassmorphism**: Sidebars use `bg-black/40 backdrop-blur-md` for depth.
 - **Motion**: Fluid transitions for layout shifts and chart updates.
+
+### ⚡ Smart Chart Controls
+- **Dynamic Titles**: Double-click to rename charts instantly.
+- **Action Toolbar**: Clear chart, Edit in Single View, Duplicate, and Delete controls.
+- **Auto-Aggregation**: Qualitative fields are automatically summed/counted to prevent "hairball" charts.
 
 ### ⚡ Auto-Chart & History
 - **Smart Defaults**: `autoChart.ts` selects appropriate chart types based on field types.

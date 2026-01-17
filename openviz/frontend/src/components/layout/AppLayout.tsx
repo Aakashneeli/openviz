@@ -6,7 +6,7 @@ import { DndContext, DragOverlay, closestCenter, defaultDropAnimationSideEffects
 import type { DragStartEvent, DragEndEvent, DropAnimation } from '@dnd-kit/core';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Settings2, LayoutTemplate } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { DataShelf } from '@/components/data-shelf/DataShelf';
 import { EncodingDeck } from '@/components/encoding-deck/EncodingDeck';
 import { Canvas } from '@/components/canvas/Canvas';
@@ -122,20 +122,20 @@ export function AppLayout() {
                             </div>
                         </div>
 
-                        <div className="absolute top-4 right-4 z-50 flex gap-2 pointer-events-none">
-                            <div className="pointer-events-auto">
-                                {!rightOpen && (
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        onClick={() => setRightOpen(true)}
-                                        className="h-8 w-8 rounded-lg bg-black/40 border-white/10 backdrop-blur-md hover:bg-white/10 hover:border-white/20 shadow-lg text-muted-foreground hover:text-white transition-all"
-                                    >
-                                        <Settings2 className="h-4 w-4" />
-                                    </Button>
-                                )}
+                        {/* Right panel toggle - positioned at edge when collapsed */}
+                        {!rightOpen && (
+                            <div className="absolute top-1/2 -translate-y-1/2 right-0 z-50">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setRightOpen(true)}
+                                    title="Open Visual Mapping"
+                                    className="h-10 w-6 rounded-l-lg rounded-r-none bg-indigo-500/20 border-l border-t border-b border-indigo-500/30 border-r-0 backdrop-blur-md hover:bg-indigo-500/40 hover:border-indigo-500/50 shadow-lg text-indigo-400 hover:text-white transition-all"
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                </Button>
                             </div>
-                        </div>
+                        )}
 
                         {/* Canvas Container */}
                         <div className="flex-1 rounded-xl border border-white/5 bg-transparent overflow-hidden relative">
@@ -176,8 +176,8 @@ export function AppLayout() {
                     </AnimatePresence>
                 </div>
 
-                {/* Floating AI - Adjusted to sit in bottom center */}
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+                {/* Floating AI - Bottom right corner */}
+                <div className="fixed bottom-6 right-6 z-50">
                     <AIChat />
                 </div>
 

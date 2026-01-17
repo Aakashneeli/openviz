@@ -2,10 +2,11 @@
 // EncodingDeck - DataViz Studio Channels
 // ============================================
 
-import { ArrowUp, Zap, Grid, Eraser } from 'lucide-react';
+import { ArrowUp, Zap, Grid, Eraser, LayoutGrid } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { EncodingShelf } from './EncodingShelf';
+import { ChartTypeSelector } from './ChartTypeSelector';
 import { useVizStore } from '@/store/useVizStore';
 
 export function EncodingDeck() {
@@ -31,6 +32,17 @@ export function EncodingDeck() {
 
             <ScrollArea className="flex-1">
                 <div className="p-0">
+                    {/* Chart Type Group */}
+                    <div className="border-b border-border">
+                        <div className="px-3 py-1.5 bg-muted/10 border-b border-border/50 flex items-center gap-2">
+                            <LayoutGrid className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-[10px] font-bold text-foreground uppercase tracking-wide">Chart Type</span>
+                        </div>
+                        <div className="p-2">
+                            <ChartTypeSelector />
+                        </div>
+                    </div>
+
                     {/* Position Group */}
                     <div className="border-b border-border">
                         <div className="px-3 py-1.5 bg-muted/10 border-b border-border/50 flex items-center gap-2">
@@ -72,3 +84,4 @@ export function EncodingDeck() {
         </div>
     );
 }
+

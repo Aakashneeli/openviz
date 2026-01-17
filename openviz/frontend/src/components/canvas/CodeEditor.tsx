@@ -1,31 +1,32 @@
 // ============================================
-// CodeEditor - JSON spec editor with Monaco
+// CodeEditor - ECharts option editor with Monaco
 // ============================================
 
 import { useCallback, useMemo } from 'react';
 import Editor from '@monaco-editor/react';
-import { useVizStore, selectVegaSpec } from '@/store/useVizStore';
+import { useVizStore, selectEChartsOption } from '@/store/useVizStore';
 
 export function CodeEditor() {
-    const vegaSpec = useVizStore(selectVegaSpec);
+    const echartsOption = useVizStore(selectEChartsOption);
     const { updateSpecFromJson } = useVizStore();
 
-    const specJson = useMemo(() => {
-        if (!vegaSpec) {
+    const optionJson = useMemo(() => {
+        if (!echartsOption) {
             return JSON.stringify(
                 {
-                    $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-                    description: 'Add fields to encoding shelves to generate spec',
-                    data: { values: [] },
-                    mark: 'bar',
-                    encoding: {},
+                    title: { text: 'ECharts Option' },
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'category' },
+                    yAxis: { type: 'value' },
+                    series: [],
+                    _info: 'Add fields to encoding shelves to generate option',
                 },
                 null,
                 2
             );
         }
-        return JSON.stringify(vegaSpec, null, 2);
-    }, [vegaSpec]);
+        return JSON.stringify(echartsOption, null, 2);
+    }, [echartsOption]);
 
     const handleChange = useCallback(
         (value: string | undefined) => {
@@ -45,7 +46,7 @@ export function CodeEditor() {
             <Editor
                 height="100%"
                 defaultLanguage="json"
-                value={specJson}
+                value={optionJson}
                 onChange={handleChange}
                 theme="vs-dark"
                 options={{

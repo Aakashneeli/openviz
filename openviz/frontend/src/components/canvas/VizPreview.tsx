@@ -1,13 +1,14 @@
 // ============================================
-// VizPreview - Scrollable Interactive Chart
+// VizPreview - ECharts Interactive Chart
 // ============================================
 
-import { useEffect, useRef, useMemo } from 'react';
-import embed from 'vega-embed';
+import { useMemo } from 'react';
+import ReactECharts from 'echarts-for-react';
 import { BarChart3, MousePointer2, Move, ZoomIn, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChartSummaryCard } from '@/components/canvas/ChartSummaryCard';
-import { useVizStore, selectVegaSpec, selectDataset, selectEncodings, selectChartSummary, selectSummaryLoading } from '@/store/useVizStore';
+import { useVizStore, selectEChartsOption, selectDataset, selectEncodings, selectChartSummary, selectSummaryLoading } from '@/store/useVizStore';
+
 
 interface VizPreviewProps {
     minWidth?: number;
@@ -15,8 +16,7 @@ interface VizPreviewProps {
 }
 
 export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const vegaSpec = useVizStore(selectVegaSpec);
+    const echartsOption = useVizStore(selectEChartsOption);
     const dataset = useVizStore(selectDataset);
     const encodings = useVizStore(selectEncodings);
     const chartSummary = useVizStore(selectChartSummary);
@@ -53,82 +53,10 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
         };
     }, [dataset, encodings, minWidth, minHeight]);
 
-    // Prepare spec with interactive features
-    const spec = useMemo(() => {
-        if (!vegaSpec) return null;
-
-        return {
-            ...vegaSpec,
-            width: chartSize.width,
-            height: chartSize.height,
-            background: 'transparent',
-            autosize: { type: 'fit', contains: 'padding' },
-
-            // Interactive selection
-            params: [
-                {
-                    name: 'hover',
-                    select: { type: 'point', on: 'pointerover', clear: 'pointerout' }
-                }
-            ],
-
-            config: {
-                background: 'transparent',
-                view: { stroke: 'transparent' },
-                axis: {
-                    labelFont: 'Outfit, sans-serif',
-                    titleFont: 'Outfit, sans-serif',
-                    labelColor: '#a1a1aa', // zinc-400
-                    titleColor: '#e4e4e7', // zinc-200
-                    gridColor: '#27272a',  // zinc-800
-                    domainColor: '#3f3f46', // zinc-700
-                    labelFontSize: 11,
-                    titleFontSize: 12,
-                    titleFontWeight: 600,
-                },
-                legend: {
-                    labelFont: 'Outfit, sans-serif',
-                    titleFont: 'Outfit, sans-serif',
-                    labelColor: '#d4d4d8', // zinc-300
-                    titleColor: '#fafafa', // zinc-50
-                },
-                title: {
-                    font: 'Outfit, sans-serif',
-                    color: '#fafafa',
-                    fontSize: 16,
-                    fontWeight: 600,
-                },
-                range: {
-                    category: [
-                        '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
-                        '#8b5cf6', '#06b6d4', '#f97316', '#ec4899',
-                    ]
-                }
-            },
-        };
-    }, [vegaSpec, chartSize]);
-
-    useEffect(() => {
-        if (!containerRef.current || !spec) return;
-
-        const embedChart = async () => {
-            try {
-                await embed(containerRef.current!, spec as never, {
-                    actions: { export: true, source: false, compiled: false, editor: false },
-                    renderer: 'svg',
-                    tooltip: { theme: 'dark' },
-                });
-            } catch (err) {
-                console.error('Vega embed error:', err);
-            }
-        };
-
-        embedChart();
-
-        return () => {
-            if (containerRef.current) containerRef.current.innerHTML = '';
-        };
-    }, [spec]);
+    // Generate a unique key based on encodings to force chart remount
+    const chartKey = useMemo(() => {
+        return encodings.map(e => `${e.channel}:${e.field.name}`).join('|');
+    }, [encodings]);
 
     if (!dataset) {
         return (
@@ -142,7 +70,7 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
         );
     }
 
-    if (!spec) {
+    if (!echartsOption) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <div className="w-full max-w-sm p-8 rounded-2xl border-2 border-dashed border-border bg-card/10 text-center hover:border-primary/20 transition-colors">
@@ -193,10 +121,18 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                 <div className="absolute inset-0 bg-[radial-gradient(#27272a_1px,transparent_1px)] [background-size:16px_16px] [mask-image:radial-gradient(ellipse_at_center,black,transparent)] opacity-20 pointer-events-none" />
 
                 <div
-                    ref={containerRef}
-                    className="inline-block relative z-0"
-                    style={{ minWidth: chartSize.width, minHeight: chartSize.height }}
-                />
+                    className="relative z-0"
+                    style={{ width: chartSize.width, height: chartSize.height }}
+                >
+                    <ReactECharts
+                        key={chartKey}
+                        option={echartsOption}
+                        style={{ width: chartSize.width, height: chartSize.height }}
+                        notMerge={true}
+                        lazyUpdate={false}
+                        opts={{ renderer: 'canvas' }}
+                    />
+                </div>
 
                 {/* Chart Summary Card */}
                 <div className="max-w-2xl mx-auto">
