@@ -2,8 +2,8 @@
 
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
-> 
-> **Last Updated**: January 17, 2026
+>
+> **Last Updated**: January 18, 2026
 
 ---
 
@@ -264,11 +264,23 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 - **Semantic Icons**: Fields display context-aware icons based on detected semantic type.
 - **Smooth Animations**: Framer Motion-powered drag interactions with physics-based effects.
 
+### ✨ Smart Annotations (Phase 2.1) - NEW!
+- **Automatic Outlier Detection**: Z-score based statistical analysis (threshold: 2σ) identifies anomalies in quantitative data.
+- **Extreme Value Markers**: Automatic detection and highlighting of maximum and minimum data points.
+- **Visual Annotations**: ECharts markPoint/markLine integration with color-coded pins:
+  - 🟢 Green pins for maximum values ("Peak")
+  - 🔴 Red inverted pins for minimum values ("Low")
+  - 🟠 Orange circles for outliers with Z-score labels
+  - 🟣 Purple dashed line showing average value
+- **Smart Limiting**: Maximum 5 annotations per chart to prevent visual clutter.
+- **UI Toggle**: "Insights" button with Sparkles icon to show/hide annotations dynamically.
+- **State Management**: `showAnnotations` boolean in store with `toggleAnnotations()` action.
+
 ---
 
 ## 6. Type System Summary
 
-### Core Types (`types/index.ts` - 330 lines)
+### Core Types (`types/index.ts` - 395 lines)
 ```typescript
 // Field Classification
 type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
@@ -279,17 +291,22 @@ type SemanticType = 'email' | 'phone' | 'url' | 'currency' | 'percentage' | 'cou
 // Encoding Channels
 type EncodingChannel = 'x' | 'y' | 'color' | 'size' | 'shape' | 'tooltip' | 'row' | 'column';
 
-// Chart Marks
-type MarkType = 'bar' | 'line' | 'point' | 'area' | 'arc' | 'rect' | 'rule' | 'text' | 'tick' | 'auto';
+// Chart Marks (Expanded for ECharts)
+type MarkType = 'bar' | 'line' | 'point' | 'area' | 'arc' | 'boxplot' | 'candlestick' | 'histogram'
+  | 'treemap' | 'sunburst' | 'tree' | 'sankey' | 'graph' | 'radar' | 'heatmap' | 'funnel' | 'gauge'
+  | 'parallel' | 'waterfall' | 'calendar' | 'pictorialBar' | 'rect' | 'rule' | 'text' | 'tick' | 'auto';
 
 // AI Intent Classification
 type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard' | 'explain' | 'unknown';
+
+// Annotation Types (Phase 2.1 - Smart Annotations)
+interface Annotation { type: 'outlier' | 'max' | 'min' | 'trend', dataIndex, value, label, coord? }
 
 // Key Interfaces
 interface FieldInfo { id, name, type, semanticType?, stats, sparklineData }
 interface Dataset { id, name, fields, rowCount, data, uploadedAt }
 interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
-interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor? }
+interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor?, annotations? }
 interface DashboardConfig { id, title?, charts, layout, createdAt }
 interface DataProfile { rowCount, columnCount, fields, summary?, cleaningSuggestions?, generatedAt }
 interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error? }
@@ -299,17 +316,68 @@ interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, e
 ---
 
 ## 7. Development Roadmap & Status
-*(Based on `feature_roadmap.md`)*
+*(Based on `IMPLEMENTATION_PLAN.md`)*
 
 ### ✅ Phase 1: Core Foundation & Trust (Completed Jan 2026)
 - **1.1 Smart Data Profiler 2.0**: Semantic type detection (Email, URL, Currency, etc.)
 - **1.2 Transparency Mode**: "Peek Code" to view/copy AI-generated ECharts options.
 - **1.3 Enhanced Data Shelf**: Semantic badges and ghost-drag interactions.
 
-### 🚧 Phase 2: The "Thinking" Canvas (Current Focus)
-- **2.1 The Data Painter**: Interactive "Explain Selection" tool.
-- **2.2 Dashboard Templates**: One-click layouts for common use cases (Sales, SaaS).
-- **2.3 Smart Annotations**: AI-generated chart callouts.
+### 🚧 Phase 2: The "Thinking" Canvas (In Progress - Jan 2026)
+
+#### ✅ 2.3 Smart Annotations (Completed Jan 18, 2026)
+**Implementation Details:**
+- **Backend Services**: Created `annotationService.ts` with statistical analysis functions
+  - `detectOutliers()`: Z-score based outlier detection (configurable threshold)
+  - `detectExtremes()`: Max/min value identification
+  - `generateAnnotations()`: Combined annotation generation with smart limiting
+  - `calculateTrendLine()`: Linear regression for future trend analysis
+- **ECharts Integration**: Extended `echartsOptionBuilder.ts` with annotation rendering
+  - `buildMarkPoint()`: Converts annotations to visual markers (pins, circles)
+  - `buildMarkLine()`: Adds average/trend lines to charts
+  - Color-coded markers: Green (max), Red (min), Orange (outliers), Purple (average)
+- **AI Integration**: Enhanced `groqService.ts` to auto-generate annotations
+  - Automatic detection in `processChartRequest()` for quantitative Y-axis charts
+  - X-axis coordinate positioning for accurate placement
+  - Graceful error handling (annotations won't break chart creation)
+- **State Management**: Added `showAnnotations` boolean to `useVizStore`
+  - `toggleAnnotations()` action for dynamic show/hide
+  - Integrated with `regenerateSpec()` for live updates
+- **UI Components**: "Insights" toggle button in `Canvas.tsx`
+  - Sparkles icon with animated pulse effect when active
+  - Purple glow styling for active state
+  - Tooltip: "Toggle Smart Annotations (outliers, max/min)"
+
+**Files Modified/Created:**
+- ✅ `backend/services/annotationService.ts` (210 lines) - NEW
+- ✅ `backend/types/index.ts` (+7 lines) - Added `Annotation` interface
+- ✅ `backend/utils/echartsOptionBuilder.ts` (+73 lines) - Annotation helpers
+- ✅ `backend/services/groqService.ts` (+35 lines) - AI annotation generation
+- ✅ `frontend/src/store/useVizStore.ts` (+15 lines) - State + toggle action
+- ✅ `frontend/src/components/canvas/Canvas.tsx` (+15 lines) - UI toggle
+
+#### 📅 2.2 Dashboard Templates (Next - Hybrid Approach)
+**Status**: Ready to start after Smart Annotations
+**Architecture Decision**: Hybrid system (Templates + AI fallback)
+- **Template Registry**: Pre-built layouts for common use cases
+  - SaaS KPI Dashboard (MRR, churn, growth metrics)
+  - Sales Overview (pipeline, deals, quota tracking)
+  - HR Headcount (hiring trends, department breakdown)
+  - Finance P&L (revenue, expenses, profit margins)
+  - Marketing Funnel (conversion rates, CAC, LTV)
+- **Smart Matching**: Keyword-based template detection with 0.3 confidence threshold
+- **Field Mapping**: Automatic field-to-slot assignment using type constraints
+- **AI Fallback**: Use existing AI generation when no template matches
+
+**Implementation Plan:**
+1. Create `backend/types/templates.ts` with `DashboardTemplate` and `TemplateSlot` interfaces
+2. Build `backend/templates/registry.ts` with 5 core templates
+3. Implement `backend/services/templateService.ts` for matching and mapping logic
+4. Integrate with `groqService.processDashboardRequest()` (template-first, AI-second)
+
+#### 📅 2.1 Data Painter (Deferred to Sprint 2)
+**Status**: Blocked by UX design decisions
+**Reason**: Requires design finalization for InsightToast placement, brush styling, and insight formulas
 
 ### 🔮 Phase 3: Advanced Analytics (Planned)
 - **3.1 Client-Side Forecasting**: Exponential smoothing / linear regression in browser.
@@ -346,9 +414,12 @@ npm run lint     # Run ESLint
 ### File Size Reference
 | File | Lines | Purpose |
 |------|-------|---------|
-| `groqService.ts` | 1082 | AI/LLM integration |
-| `useVizStore.ts` | 784 | State management |
-| `types/index.ts` | 330 | Type definitions |
-| `dataContextService.ts` | 291 | Data profiling |
+| `groqService.ts` | 1,991 | AI/LLM integration (expanded with annotations) |
+| `echartsOptionBuilder.ts` | 1,193 | ECharts option generation (19 chart types + annotations) |
+| `useVizStore.ts` | 1,120 | State management (with annotations toggle) |
+| `schemaInference.ts` | 456 | Type detection + semantic classification |
+| `types/index.ts` | 395 | Type definitions (includes Annotation interface) |
+| `dataContextService.ts` | 291 | Data profiling with Arquero |
 | `AIChat.tsx` | 233 | Chat UI component |
-| `vegaSpecBuilder.ts` | ~200 | Vega spec generation |
+| `annotationService.ts` | 210 | Statistical analysis for annotations (NEW) |
+| `CodePreview.tsx` | 133 | Syntax highlighting component (NEW) |

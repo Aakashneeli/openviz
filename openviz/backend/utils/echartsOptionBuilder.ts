@@ -10,7 +10,8 @@ import type {
     DataRecord,
     MarkType,
     FieldType,
-    EChartsOption
+    EChartsOption,
+    Annotation
 } from '../types';
 import { determineChartType } from './autoChart';
 
@@ -67,6 +68,76 @@ const TOOLBOX = {
     right: 20,
     top: 10,
 };
+
+// ============================================
+// Annotation Helpers
+// ============================================
+
+/**
+ * Build ECharts markPoint configuration from annotations
+ */
+function buildMarkPoint(annotations: Annotation[]): Record<string, unknown> {
+    const markData = annotations
+        .filter(a => a.type === 'max' || a.type === 'min' || a.type === 'outlier')
+        .map(a => {
+            const symbol = a.type === 'max' ? 'pin' : a.type === 'min' ? 'pin' : 'circle';
+            const symbolSize = a.type === 'outlier' ? 50 : 60;
+
+            return {
+                name: a.label,
+                coord: a.coord,
+                value: a.value,
+                symbol,
+                symbolSize,
+                symbolRotate: a.type === 'min' ? 180 : 0,
+                itemStyle: {
+                    color: a.type === 'max' ? '#10b981' : a.type === 'min' ? '#ef4444' : '#f59e0b',
+                },
+                label: {
+                    show: true,
+                    formatter: a.label,
+                    position: 'top',
+                    color: '#fafafa',
+                    fontSize: 11,
+                    fontWeight: 500,
+                },
+            };
+        });
+
+    return {
+        data: markData,
+        animation: true,
+        animationDuration: 500,
+    };
+}
+
+/**
+ * Build ECharts markLine configuration for average/trend lines
+ */
+function buildMarkLine(data: number[], showAverage: boolean = true): Record<string, unknown> | undefined {
+    if (!showAverage || data.length === 0) return undefined;
+
+    return {
+        data: [
+            {
+                type: 'average',
+                name: 'Average',
+                label: {
+                    formatter: 'Avg: {c}',
+                    position: 'end',
+                    color: '#a1a1aa',
+                    fontSize: 11,
+                },
+                lineStyle: {
+                    color: '#8b5cf6',
+                    type: 'dashed',
+                    width: 2,
+                },
+            },
+        ],
+        animation: true,
+    };
+}
 
 // ============================================
 // Main Entry Point
@@ -248,11 +319,26 @@ function buildCartesianChart(
             return [xVal, yVal];
         });
 
-        option.series = [{
+        const series: Record<string, unknown> = {
             ...baseSeries,
             data: seriesData,
             encode: undefined, // Remove encode when using explicit data
-        }];
+        };
+
+        // Add annotations if present
+        if (config.annotations && config.annotations.length > 0) {
+            series.markPoint = buildMarkPoint(config.annotations);
+
+            // Add average line for quantitative Y axis
+            if (yEncoding?.field.type === 'quantitative') {
+                const yValues = processedData
+                    .map(d => Number(d[yEncoding.field.name]))
+                    .filter(v => !isNaN(v));
+                series.markLine = buildMarkLine(yValues, true);
+            }
+        }
+
+        option.series = [series];
     }
 
     return option;

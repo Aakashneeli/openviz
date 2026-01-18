@@ -24,6 +24,7 @@ import type {
 import { v4 as uuidv4 } from 'uuid';
 import { executeDataQuery, formatProfileForLLM } from './dataContextService';
 import type { DataQuery } from './dataContextService';
+import { generateAnnotations } from './annotationService';
 
 // ============================================
 // Configuration
@@ -503,7 +504,7 @@ export async function processAIQuery(
         case 'question':
             return processDataQuestion(query, dataProfile, fields, data, chatHistory, chartContext, dashboardContext);
         case 'chart':
-            return processChartRequest(query, dataProfile, fields, chatHistory);
+            return processChartRequest(query, dataProfile, fields, data, chatHistory);
         case 'modify':
             return processModifyRequest(query, fields, currentEncodings, currentMark, chatHistory);
         case 'dashboard':
@@ -513,7 +514,7 @@ export async function processAIQuery(
         case 'explain':
             return processExplainRequest(query, dataProfile, fields, data);
         default:
-            return processChartRequest(query, dataProfile, fields, chatHistory);
+            return processChartRequest(query, dataProfile, fields, data, chatHistory);
     }
 }
 
@@ -696,6 +697,7 @@ async function processChartRequest(
     query: string,
     dataProfile: DataProfile,
     fields: FieldInfo[],
+    data: DataRecord[],
     chatHistory: AIMessage[]
 ): Promise<AIQueryResult> {
     try {
@@ -826,6 +828,42 @@ Respond with ONLY valid JSON.`;
         }
 
         const chartConfig = buildChartConfig(aiResponse, fields);
+
+        // Generate smart annotations for quantitative data
+        const yEncoding = chartConfig.encodings.find(e => e.channel === 'y');
+        const xEncoding = chartConfig.encodings.find(e => e.channel === 'x');
+
+        if (yEncoding && yEncoding.field.type === 'quantitative' && data.length > 0) {
+            try {
+                // Extract Y-axis values for annotation analysis
+                const yFieldName = yEncoding.field.name;
+                const yValues = data
+                    .map(row => Number(row[yFieldName]))
+                    .filter(v => !isNaN(v));
+
+                // Get X-axis data for positioning (if available)
+                const xAxisData = xEncoding
+                    ? data.map(row => row[xEncoding.field.name] as string | number)
+                    : undefined;
+
+                // Generate annotations (outliers + extremes)
+                const annotations = generateAnnotations(yValues, yFieldName, {
+                    includeOutliers: true,
+                    includeExtremes: true,
+                    maxAnnotations: 5,
+                    outlierThreshold: 2,
+                    xAxisData,
+                });
+
+                if (annotations.length > 0) {
+                    chartConfig.annotations = annotations;
+                    console.log(`[Annotations] Added ${annotations.length} annotations to chart`);
+                }
+            } catch (error) {
+                console.error('[Annotations] Failed to generate annotations:', error);
+                // Don't fail the entire chart creation if annotations fail
+            }
+        }
 
         return {
             query,

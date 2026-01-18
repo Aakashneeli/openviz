@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState } from 'react';
-import { BarChart3, Code, Download, Activity, LayoutGrid, Plus, Trash2, Pencil, Check } from 'lucide-react';
+import { BarChart3, Code, Download, Activity, LayoutGrid, Plus, Trash2, Pencil, Check, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { VizPreview } from './VizPreview';
@@ -16,7 +16,8 @@ export function Canvas() {
     const echartsOption = useVizStore(selectEChartsOption);
     const viewMode = useVizStore(selectViewMode);
     const dashboardConfig = useVizStore(selectDashboardConfig);
-    const { setViewMode, createDashboard, addChartToDashboard, resetChart, setTitle, syncAndReturnToDashboard } = useVizStore();
+    const showAnnotations = useVizStore((state) => state.showAnnotations);
+    const { setViewMode, createDashboard, addChartToDashboard, resetChart, setTitle, syncAndReturnToDashboard, toggleAnnotations } = useVizStore();
 
     const chartConfig = useVizStore((state) => state.chartConfig);
 
@@ -129,6 +130,20 @@ export function Canvas() {
                     )}
                     {echartsOption && (
                         <>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className={`h-7 text-xs transition-all ${
+                                    showAnnotations
+                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                                onClick={toggleAnnotations}
+                                title="Toggle Smart Annotations (outliers, max/min)"
+                            >
+                                <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${showAnnotations ? 'animate-pulse' : ''}`} />
+                                Insights
+                            </Button>
                             <Button
                                 variant="ghost"
                                 size="icon"

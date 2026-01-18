@@ -151,6 +151,15 @@ export type MarkType =
     | 'tick'
     | 'auto';
 
+/** Annotation for highlighting data points on charts */
+export interface Annotation {
+    type: 'outlier' | 'max' | 'min' | 'trend';
+    dataIndex: number;
+    value: number;
+    label: string;
+    coord?: [number | string, number]; // For ECharts positioning
+}
+
 /** Complete chart configuration state */
 export interface ChartConfig {
     id: string;
@@ -161,6 +170,7 @@ export interface ChartConfig {
     height: number | 'container';
     interactive?: boolean;
     fixedColor?: string; // For uniform coloring (e.g., "green", "#00ff00")
+    annotations?: Annotation[]; // Smart annotations for data insights
 }
 
 // ============================================

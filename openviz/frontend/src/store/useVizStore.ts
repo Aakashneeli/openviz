@@ -84,6 +84,7 @@ interface VizState {
     isDragging: boolean;
     leftSidebarOpen: boolean;
     rightSidebarOpen: boolean;
+    showAnnotations: boolean;
 
     // AI State
     aiQuery: string;
@@ -125,6 +126,7 @@ interface VizActions {
     setCanvasView: (view: CanvasViewMode) => void;
     setSelectedField: (fieldId: string | null) => void;
     setDragging: (isDragging: boolean) => void;
+    toggleAnnotations: () => void;
 
     // AI Actions
     setAIQuery: (query: string) => void;
@@ -208,6 +210,7 @@ const initialState: VizState = {
     isDragging: false,
     leftSidebarOpen: true,
     rightSidebarOpen: true,
+    showAnnotations: true,
 
     // AI
     aiQuery: '',
@@ -459,6 +462,13 @@ export const useVizStore = create<VizState & VizActions>()(
 
             setDragging: (isDragging: boolean) => {
                 set({ isDragging });
+            },
+
+            toggleAnnotations: () => {
+                const { showAnnotations } = get();
+                set({ showAnnotations: !showAnnotations });
+                // Regenerate chart to apply/remove annotations
+                get().regenerateSpec();
             },
 
             // ----------------------------------------
@@ -987,7 +997,7 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             regenerateSpec: () => {
-                const { dataset, chartConfig, encodings } = get();
+                const { dataset, chartConfig, encodings, showAnnotations } = get();
 
                 if (!dataset || encodings.length === 0) {
                     set({ echartsOption: null });
@@ -997,6 +1007,8 @@ export const useVizStore = create<VizState & VizActions>()(
                 const configWithEncodings: ChartConfig = {
                     ...chartConfig,
                     encodings,
+                    // Remove annotations if toggle is off
+                    annotations: showAnnotations ? chartConfig.annotations : undefined,
                 };
 
                 const option = buildEChartsOption(configWithEncodings, dataset.data);
