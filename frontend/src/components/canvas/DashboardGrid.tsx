@@ -15,6 +15,7 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import type { ChartConfig } from '@backend/types';
 import { exportDashboardToPDF } from '@/services/exportService';
+import { toast } from '@/lib/toast';
 
 interface DashboardChartProps {
     config: ChartConfig;
@@ -255,8 +256,14 @@ export function DashboardGrid() {
         setIsExporting(true);
         try {
             await exportDashboardToPDF(dashboardRef.current, dashboard.title || 'dashboard');
+            toast.success('Dashboard exported successfully', {
+                description: `${dashboard.charts.length} charts exported to PDF`,
+            });
         } catch (error) {
             console.error('Dashboard export failed:', error);
+            toast.error('Failed to export dashboard', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
         } finally {
             setIsExporting(false);
         }

@@ -1,13 +1,24 @@
 import { useMemo, useState, useRef } from 'react';
-import { Search, Database, Upload, FileUp } from 'lucide-react';
+import { Search, Database, Upload, FileUp, ChevronDown, BarChart3, TrendingUp, MousePointer, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator,
+    DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { DraggableField } from './DraggableField';
 import { useVizStore, selectFields, selectDataset } from '@/store/useVizStore';
+import { sampleDatasets, loadSampleDataset } from '@/data/sampleDatasets';
+import Papa from 'papaparse';
 
 export function DataShelf() {
     const [searchQuery, setSearchQuery] = useState('');
+    const [loadingSample, setLoadingSample] = useState<string | null>(null);
     const dataset = useVizStore(selectDataset);
     const fields = useVizStore(selectFields);
     const loadDataFromFile = useVizStore(state => state.loadDataFromFile);
@@ -24,6 +35,51 @@ export function DataShelf() {
 
     const triggerUpload = () => fileInputRef.current?.click();
 
+    const handleLoadSample = async (sampleId: string) => {
+        const sample = sampleDatasets.find(s => s.id === sampleId);
+        if (!sample) return;
+
+        setLoadingSample(sampleId);
+        try {
+            // Fetch the CSV text from the public folder
+            const csvText = await loadSampleDataset(sample.filename);
+
+            // Parse CSV to get data
+            const parseResult = Papa.parse(csvText, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+            });
+
+            if (parseResult.errors.length > 0) {
+                console.error('CSV parse errors:', parseResult.errors);
+            }
+
+            // Create a File object from the CSV text to reuse existing logic
+            const blob = new Blob([csvText], { type: 'text/csv' });
+            const file = new File([blob], sample.filename, { type: 'text/csv' });
+
+            await loadDataFromFile(file);
+        } catch (error) {
+            console.error('Failed to load sample dataset:', error);
+        } finally {
+            setLoadingSample(null);
+        }
+    };
+
+    const getSampleIcon = (iconType: string) => {
+        switch (iconType) {
+            case 'chart-bar':
+                return <BarChart3 className="w-4 h-4 text-indigo-400" />;
+            case 'trending-up':
+                return <TrendingUp className="w-4 h-4 text-emerald-400" />;
+            case 'mouse-pointer':
+                return <MousePointer className="w-4 h-4 text-amber-400" />;
+            default:
+                return <Database className="w-4 h-4 text-muted-foreground" />;
+        }
+    };
+
     const filteredFields = useMemo(() => {
         return fields.filter(f =>
             f.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -32,30 +88,80 @@ export function DataShelf() {
 
     if (!dataset) {
         return (
-            <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-card/10">
-                <div className="w-16 h-16 mb-4 rounded-full bg-primary/5 flex items-center justify-center animate-pulse-slow">
-                    <Database className="w-8 h-8 text-primary/40" />
+            <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-card/10">
+                <div className="w-16 h-16 mb-4 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+                    <Database className="w-8 h-8 text-indigo-400" />
                 </div>
-                <h3 className="text-lg font-medium text-foreground/80 mb-2">No Dataset</h3>
-                <p className="text-xs text-muted-foreground max-w-[200px] mb-6">
-                    Upload a CSV/JSON file to activate the studio.
+                <h3 className="text-base font-semibold text-foreground mb-1">Get Started</h3>
+                <p className="text-xs text-muted-foreground max-w-[220px] mb-4">
+                    Drop a file here or click to upload your data and start creating visualizations.
                 </p>
 
                 <input
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileSelect}
-                    accept=".csv,.tsv,.json"
+                    accept=".csv,.tsv,.json,.xlsx,.xls"
                     className="hidden"
                 />
 
                 <Button
                     onClick={triggerUpload}
-                    className="bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 mb-3"
                 >
                     <Upload className="w-4 h-4 mr-2" />
                     Upload Data
                 </Button>
+
+                {/* Sample Data Dropdown */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="outline"
+                            className="border-dashed border-muted-foreground/30 text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 mb-4"
+                            disabled={loadingSample !== null}
+                        >
+                            {loadingSample ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Loading...
+                                </>
+                            ) : (
+                                <>
+                                    <Database className="w-4 h-4 mr-2" />
+                                    Try Sample Data
+                                    <ChevronDown className="w-3 h-3 ml-2" />
+                                </>
+                            )}
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="w-64">
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                            Sample Datasets
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {sampleDatasets.map((sample) => (
+                            <DropdownMenuItem
+                                key={sample.id}
+                                onClick={() => handleLoadSample(sample.id)}
+                                className="flex flex-col items-start gap-1 py-2 cursor-pointer"
+                            >
+                                <div className="flex items-center gap-2 w-full">
+                                    {getSampleIcon(sample.icon)}
+                                    <span className="font-medium text-sm">{sample.name}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground pl-6 leading-tight">
+                                    {sample.description}
+                                </span>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="text-[10px] text-muted-foreground/60 space-y-1">
+                    <p>Supported formats:</p>
+                    <p className="font-mono text-muted-foreground/40">CSV, TSV, JSON, Excel</p>
+                </div>
             </div>
         );
     }

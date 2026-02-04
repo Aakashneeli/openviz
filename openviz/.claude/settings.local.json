@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(findstr:*)",
-      "Bash(npx tsc:*)",
-      "Bash(dir:*)"
-    ]
-  }
-}

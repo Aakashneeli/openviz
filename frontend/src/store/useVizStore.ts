@@ -39,6 +39,7 @@ import { inferSchema } from '@backend/utils/schemaInference';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { getChartSuggestions } from '@backend/utils/autoChart';
 import { generateDataProfile } from '@backend/services/dataContextService';
+import { toast } from '@/lib/toast';
 
 // ============================================
 // Store Interface
@@ -100,6 +101,7 @@ interface VizState {
     aiChatOpen: boolean; // Added control for chat visibility
     aiFocusedChartId: string | null; // Chart focused in AI chat (from dashboard)
     aiLoading: boolean;
+    lastFailedQuery: string | null; // For manual retry after AI failure
     aiSuggestions: ChartSuggestion[];
     aiInsights: DataInsight[];
     aiChatHistory: AIMessage[];
@@ -163,6 +165,7 @@ interface VizActions {
     // AI Actions
     setAIQuery: (query: string) => void;
     processAIQuery: (query: string) => Promise<void>;
+    retryLastQuery: () => Promise<void>;
     applySuggestion: (suggestion: ChartSuggestion) => void;
     generateInsights: () => Promise<void>;
     addChatMessage: (message: AIMessage) => void;
@@ -307,6 +310,7 @@ const initialState: VizState = {
     // AI
     aiQuery: '',
     aiLoading: false,
+    lastFailedQuery: null,
     aiSuggestions: [],
     aiInsights: [],
     aiChatHistory: [],
@@ -418,13 +422,23 @@ export const useVizStore = create<VizState & VizActions>()(
                     // Generate chart recommendations
                     get().generateRecommendations();
 
+                    // Show success toast
+                    toast.success('Data loaded successfully', {
+                        description: `${data.length.toLocaleString()} rows, ${fields.length} columns from ${file.name}`,
+                    });
+
                 } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                     set({
                         uploadStatus: {
                             state: 'error',
                             progress: 0,
-                            error: error instanceof Error ? error.message : 'Unknown error',
+                            error: errorMsg,
                         },
+                    });
+                    // Show error toast
+                    toast.error('Failed to load file', {
+                        description: errorMsg,
                     });
                 }
             },
@@ -812,19 +826,69 @@ export const useVizStore = create<VizState & VizActions>()(
                         set({ aiInsights: result.insights });
                     }
 
+                    // Clear last failed query on success
+                    set({ lastFailedQuery: null });
+
                 } catch (error) {
                     console.error('AI Query Error:', error);
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+                    // Store the failed query for retry
+                    set({ lastFailedQuery: query });
+
+                    // Create user-friendly error message
+                    const isNetworkError = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch');
+                    const isRateLimitError = errorMsg.includes('429') || errorMsg.includes('rate limit');
+                    const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('timed out');
+
+                    let friendlyMessage = 'Sorry, I encountered an error processing your request.';
+                    if (isNetworkError) {
+                        friendlyMessage = 'Unable to connect to the AI service. Please check your internet connection and try again.';
+                    } else if (isRateLimitError) {
+                        friendlyMessage = 'The AI service is temporarily busy. Please wait a moment and try again.';
+                    } else if (isTimeout) {
+                        friendlyMessage = 'The request took too long to complete. Please try a simpler query or try again.';
+                    } else if (errorMsg.includes('API key')) {
+                        friendlyMessage = 'AI service is not configured. Please check your API key settings.';
+                    }
+
                     const errorMessage: AIMessage = {
                         id: uuidv4(),
                         role: 'assistant',
-                        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                        content: friendlyMessage,
                         timestamp: new Date(),
                         resultType: 'error',
                     };
                     get().addChatMessage(errorMessage);
+
+                    // Show error toast with retry hint
+                    toast.error('AI query failed', {
+                        description: 'Click "Retry" in the chat to try again.',
+                    });
                 } finally {
                     set({ aiLoading: false });
                 }
+            },
+
+            retryLastQuery: async () => {
+                const { lastFailedQuery } = get();
+                if (!lastFailedQuery) return;
+
+                // Remove the last error message from chat history before retrying
+                const { aiChatHistory } = get();
+                const lastMessage = aiChatHistory[aiChatHistory.length - 1];
+                if (lastMessage?.resultType === 'error') {
+                    set({ aiChatHistory: aiChatHistory.slice(0, -1) });
+                }
+                // Also remove the user's last message so it doesn't duplicate
+                const updatedHistory = get().aiChatHistory;
+                const lastUserMessage = updatedHistory[updatedHistory.length - 1];
+                if (lastUserMessage?.role === 'user') {
+                    set({ aiChatHistory: updatedHistory.slice(0, -1) });
+                }
+
+                // Retry the query
+                await get().processAIQuery(lastFailedQuery);
             },
 
             applySuggestion: (suggestion: ChartSuggestion) => {

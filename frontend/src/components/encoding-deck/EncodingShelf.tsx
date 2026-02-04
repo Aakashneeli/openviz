@@ -1,10 +1,23 @@
 import { useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react'; // Added icon for nested feel
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useVizStore, selectEncodingByChannel } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
 import type { EncodingChannel } from '@backend/types';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// Descriptions for encoding channels
+const CHANNEL_DESCRIPTIONS: Record<EncodingChannel, string> = {
+    x: 'Horizontal position - typically categories or time',
+    y: 'Vertical position - typically measures or values',
+    color: 'Color encoding - distinguish categories or show intensity',
+    size: 'Size encoding - show magnitude differences',
+    shape: 'Shape encoding - distinguish categories (scatter only)',
+    tooltip: 'Tooltip content - shown on hover',
+    row: 'Row facets - split chart into horizontal rows',
+    column: 'Column facets - split chart into vertical columns',
+};
 
 interface EncodingShelfProps {
     channel: EncodingChannel;
@@ -29,12 +42,19 @@ export function EncodingShelf({ channel, label }: EncodingShelfProps) {
         <div className="group/shelf flex items-start justify-between gap-2 py-1">
             <div className="w-20 shrink-0 pt-2 flex items-center gap-1">
                 <div className={cn("w-1 h-1 rounded-full bg-muted-foreground/30 transition-colors", encoding && "bg-indigo-400 shadow-[0_0_5px_rgba(99,102,241,0.5)]")} />
-                <span className={cn(
-                    "text-[10px] font-medium transition-colors uppercase tracking-wider",
-                    isOver ? "text-indigo-300 font-bold" : "text-muted-foreground/60"
-                )}>
-                    {label}
-                </span>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span className={cn(
+                            "text-[10px] font-medium transition-colors uppercase tracking-wider cursor-help",
+                            isOver ? "text-indigo-300 font-bold" : "text-muted-foreground/60"
+                        )}>
+                            {label}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">{CHANNEL_DESCRIPTIONS[channel]}</p>
+                    </TooltipContent>
+                </Tooltip>
             </div>
 
             <motion.div

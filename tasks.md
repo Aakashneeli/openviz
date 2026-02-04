@@ -3,25 +3,28 @@
 > **Generated**: January 28, 2026
 > **Based on**: OpenViz_Product_Analysis_Report.md
 > **Timeline**: Ongoing/Flexible
-> **Last Updated**: February 3, 2026
+> **Last Updated**: February 5, 2026
 
 ---
 
 ## Quick Status
 
-### Completed Tasks (2/26)
+### Completed Tasks (8/26)
 | # | Task | Priority |
 |---|------|----------|
 | 1 | API Key Security (Cloudflare Worker Proxy) | P0 |
 | 2 | PNG/SVG Image Export | P0 |
+| 4 | Error Boundaries | P0 |
+| 5 | Toast Notifications | P0 |
+| 9 | Contextual Tooltips | P0 |
+| 7 | Empty States (Onboarding) | P0 |
+| 8 | Sample Datasets | P0 |
+| 6 | AI Retry Logic | P0 |
 
 ### Next Up
 | # | Task | Priority |
 |---|------|----------|
-| 4 | Error Boundaries | P0 |
-| 5 | Toast Notifications | P0 |
-| 7 | Empty States (Onboarding) | P0 |
-| 8 | Sample Datasets | P0 |
+| 3 | PowerPoint Export | P0 |
 
 ---
 
@@ -40,11 +43,11 @@ This document outlines all implementation tasks for OpenViz based on the Product
 
 | Priority | Total | Done | In Progress |
 |----------|-------|------|-------------|
-| P0 - Critical | 9 | 2 | 0 |
+| P0 - Critical | 9 | 8 | 0 |
 | P1 - High | 7 | 0 | 0 |
 | P2 - Medium | 6 | 0 | 0 |
 | Architecture | 4 | 0 | 0 |
-| **Total** | **26** | **2** | **0** |
+| **Total** | **26** | **8** | **0** |
 
 ---
 
@@ -128,7 +131,7 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 ---
 
 ### Task 4: Error Handling - Error Boundaries
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (half day)
 
@@ -140,18 +143,18 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 3. Add "Retry" and "Report Bug" buttons in fallback
 4. Log errors to console (or analytics service later)
 
-**Files to Create**:
-- `frontend/src/components/ui/ErrorBoundary.tsx`
-- `frontend/src/components/ui/ErrorFallback.tsx`
+**Files Created**:
+- `frontend/src/components/ui/ErrorBoundary.tsx` - React error boundary class component with reset capability
+- `frontend/src/components/ui/ErrorFallback.tsx` - Graceful error UI with retry/report bug buttons
 
-**Files to Modify**:
+**Files Modified**:
 - `frontend/src/App.tsx` - Wrap top-level with ErrorBoundary
-- `frontend/src/components/layout/AppLayout.tsx` - Wrap sections
+- `frontend/src/components/layout/AppLayout.tsx` - Wrapped DataShelf, DashboardList, Canvas, EncodingDeck, AIChat
 
 ---
 
 ### Task 5: Error Handling - Toast Notifications
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (half day)
 
@@ -163,38 +166,40 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 3. Add toasts for: file upload success/error, AI query failure, export complete, save success
 4. Position at bottom-right, auto-dismiss after 4s
 
-**Files to Create**:
-- `frontend/src/components/ui/Toaster.tsx` - Toast container
-- `frontend/src/lib/toast.ts` - Toast utility functions
+**Files Created**:
+- `frontend/src/components/ui/Toaster.tsx` - Sonner Toaster with dark theme styling
+- `frontend/src/lib/toast.ts` - Toast utility wrapper with success, error, info, warning, loading, promise methods
 
-**Files to Modify**:
-- `frontend/src/App.tsx` - Add Toaster component
-- `frontend/src/store/useVizStore.ts` - Add toasts to key actions
+**Files Modified**:
+- `frontend/src/App.tsx` - Added Toaster component
+- `frontend/src/store/useVizStore.ts` - Added toasts for file load success/error, AI query errors
+- `frontend/src/components/canvas/Canvas.tsx` - Added toasts for PDF/PNG/SVG export
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Added toasts for dashboard PDF export
 
 ---
 
 ### Task 6: Error Handling - AI Retry Logic
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (half day)
 
 **Problem**: AI calls can fail silently without retry
 
 **Implementation**:
-1. Add exponential backoff retry (3 attempts: 1s, 2s, 4s)
-2. Show "Retrying..." status in AI chat
+1. Add exponential backoff retry (3 attempts: 1s, 2s, 4s) - Already implemented in groqService.ts
+2. Show "Retrying..." status in AI chat - Automatic via backend retry
 3. On final failure, show friendly error with manual retry option
 4. Add "AI temporarily unavailable" fallback message
 
-**Files to Modify**:
-- `backend/services/groqService.ts` - Add retry wrapper
-- `frontend/src/store/useVizStore.ts` - Handle retry states
-- `frontend/src/components/ai/AIChat.tsx` - Show retry status
+**Files Modified**:
+- `backend/services/groqService.ts` - Already had retry wrapper with exponential backoff (MAX_RETRIES=3, delays: 1s, 2s, 4s)
+- `frontend/src/store/useVizStore.ts` - Added `lastFailedQuery` state, `retryLastQuery` action, user-friendly error messages (network, rate limit, timeout detection)
+- `frontend/src/components/ai/AIChat.tsx` - Added "Retry" button on error messages with RefreshCw icon
 
 ---
 
 ### Task 7: Onboarding - Empty States
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (1 day)
 
@@ -206,16 +211,16 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 3. Design empty state for Dashboard: "Add your first chart" with + button
 4. Add file format hints and max size info
 
-**Files to Modify**:
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Empty state
-- `frontend/src/components/canvas/Canvas.tsx` - Empty state
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Empty state
-- `frontend/src/components/encoding-deck/EncodingDeck.tsx` - Hints when no data
+**Files Modified**:
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Enhanced empty state with upload CTA and format hints
+- `frontend/src/components/canvas/VizPreview.tsx` - Improved empty states for no-data and no-chart scenarios with step indicators
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Already had excellent empty state with AI options (unchanged)
+- `frontend/src/components/encoding-deck/EncodingDeck.tsx` - Added empty state when no data is loaded
 
 ---
 
 ### Task 8: Onboarding - Sample Datasets
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (half day)
 
@@ -229,19 +234,19 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 2. Add "Try sample data" dropdown in DataShelf
 3. Load sample directly (no file upload needed)
 
-**Files to Create**:
-- `frontend/public/samples/sales_data.csv`
-- `frontend/public/samples/stock_prices.csv`
-- `frontend/public/samples/website_analytics.csv`
-- `frontend/src/data/sampleDatasets.ts` - Sample data definitions
+**Files Created**:
+- `frontend/public/samples/sales_data.csv` - 52 rows of regional sales data with Revenue, Units, Profit by Product/Category
+- `frontend/public/samples/stock_prices.csv` - 66 rows of OHLCV stock data for 3 symbols (TECH, FINA, HEAL)
+- `frontend/public/samples/website_analytics.csv` - 56 rows of website metrics by Page and Source
+- `frontend/src/data/sampleDatasets.ts` - Sample data definitions with metadata, descriptions, and suggested charts
 
-**Files to Modify**:
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Add sample selector
+**Files Modified**:
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Added "Try Sample Data" dropdown with loading state, icons per category
 
 ---
 
 ### Task 9: Onboarding - Contextual Tooltips
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Low (half day)
 
@@ -253,11 +258,11 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 3. Use consistent styling with dark background
 4. Show on hover with 300ms delay
 
-**Files to Modify**:
-- `frontend/src/components/encoding-deck/EncodingShelf.tsx` - Channel tooltips
-- `frontend/src/components/encoding-deck/ChartTypeSelector.tsx` - Chart type descriptions
-- `frontend/src/components/ai/AIChat.tsx` - AI feature hints
-- `frontend/src/components/canvas/Canvas.tsx` - Action button tooltips
+**Files Modified**:
+- `frontend/src/App.tsx` - Added TooltipProvider with 300ms delay
+- `frontend/src/components/encoding-deck/EncodingShelf.tsx` - Channel tooltips with descriptions for all 8 channels
+- `frontend/src/components/encoding-deck/ChartTypeSelector.tsx` - Upgraded from title to Radix tooltips with descriptions
+- `frontend/src/components/canvas/Canvas.tsx` - Tooltips on Insights, Export, Clear buttons
 
 ---
 
@@ -789,6 +794,12 @@ The following items from the Product Analysis Report were explicitly skipped:
 
 | Date | Change |
 |------|--------|
+| 2026-02-05 | Task 6 (AI Retry Logic) completed - User-friendly error messages, lastFailedQuery state, Retry button in AIChat |
+| 2026-02-05 | Task 8 (Sample Datasets) completed - 3 sample CSV files with "Try Sample Data" dropdown in DataShelf |
+| 2026-02-05 | Task 7 (Empty States) completed - Enhanced DataShelf, VizPreview, EncodingDeck with helpful empty states |
+| 2026-02-04 | Task 9 (Contextual Tooltips) completed - Radix tooltips on encoding channels, chart types, action buttons |
+| 2026-02-04 | Task 5 (Toast Notifications) completed - Sonner-based toast system with file/AI/export notifications |
+| 2026-02-04 | Task 4 (Error Boundaries) completed - ErrorBoundary and ErrorFallback components with retry/report functionality |
 | 2026-02-03 | Task 2 (PNG/SVG Export) completed - Export dropdown with resolution options (1x, 2x, 3x) |
 | 2026-02-03 | Task 1 (API Key Security) completed - Cloudflare Worker proxy with rate limiting, retry logic |
 | 2026-01-28 | Initial task list created from Product Analysis Report |

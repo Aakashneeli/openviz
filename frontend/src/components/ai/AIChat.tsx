@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle, X, Focus } from 'lucide-react';
+import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle, X, Focus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -25,7 +25,8 @@ export function AIChat() {
     const dataset = useVizStore(selectDataset);
     const aiLoading = useVizStore(selectAILoading);
     const chatHistory = useVizStore(selectAIChatHistory);
-    const { processAIQuery } = useVizStore();
+    const { processAIQuery, retryLastQuery } = useVizStore();
+    const lastFailedQuery = useVizStore(state => state.lastFailedQuery);
 
     // Chart focus context
     const aiFocusedChartId = useVizStore(state => state.aiFocusedChartId);
@@ -292,6 +293,17 @@ export function AIChat() {
                                                 </div>
                                             )}
                                             {msg.content}
+
+                                            {/* Retry button for error messages */}
+                                            {msg.role === 'assistant' && msg.resultType === 'error' && lastFailedQuery && !aiLoading && (
+                                                <button
+                                                    onClick={() => retryLastQuery()}
+                                                    className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-300 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors border border-red-500/30"
+                                                >
+                                                    <RefreshCw className="w-3 h-3" />
+                                                    Retry
+                                                </button>
+                                            )}
 
                                             {/* Transparency Mode: Peek Code for chart messages */}
                                             {msg.role === 'assistant' && msg.resultType === 'chart' && msg.echartsOption && (

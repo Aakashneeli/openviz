@@ -14,6 +14,8 @@ import { ReportGenerator } from '@/components/report/ReportGenerator';
 import { useVizStore, selectEChartsOption, selectViewMode, selectDashboardConfig, selectActiveFilters, selectComparisonResult, selectForecastData } from '@/store/useVizStore';
 import { Input } from '@/components/ui/input';
 import { exportChartToPDF, exportToPNG, exportToSVG } from '@/services/exportService';
+import { toast } from '@/lib/toast';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -60,8 +62,12 @@ export function Canvas() {
             await exportChartToPDF(chartRef.current, {
                 filename: `${chartConfig.title || 'chart'}.pdf`,
             });
+            toast.success('PDF exported successfully');
         } catch (error) {
             console.error('Export failed:', error);
+            toast.error('Failed to export PDF', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
         } finally {
             setIsExporting(false);
         }
@@ -77,8 +83,14 @@ export function Canvas() {
                 pixelRatio,
                 backgroundColor: '#1a1a1a',
             });
+            toast.success('PNG exported successfully', {
+                description: `${pixelRatio}x resolution`,
+            });
         } catch (error) {
             console.error('PNG export failed:', error);
+            toast.error('Failed to export PNG', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
         } finally {
             setIsExporting(false);
         }
@@ -93,8 +105,12 @@ export function Canvas() {
                 filename: `${chartConfig.title || 'chart'}.svg`,
                 backgroundColor: '#1a1a1a',
             });
+            toast.success('SVG exported successfully');
         } catch (error) {
             console.error('SVG export failed:', error);
+            toast.error('Failed to export SVG', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
         } finally {
             setIsExporting(false);
         }
@@ -220,19 +236,26 @@ export function Canvas() {
                     )}
                     {echartsOption && (
                         <>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className={`h-7 text-xs transition-all ${showAnnotations
-                                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                    }`}
-                                onClick={toggleAnnotations}
-                                title="Toggle Smart Annotations (outliers, max/min)"
-                            >
-                                <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${showAnnotations ? 'animate-pulse' : ''}`} />
-                                Insights
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className={`h-7 text-xs transition-all ${showAnnotations
+                                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        onClick={toggleAnnotations}
+                                    >
+                                        <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${showAnnotations ? 'animate-pulse' : ''}`} />
+                                        Insights
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p className="text-xs">Toggle smart annotations</p>
+                                    <p className="text-xs text-muted-foreground">Shows outliers, max/min values</p>
+                                </TooltipContent>
+                            </Tooltip>
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -244,21 +267,27 @@ export function Canvas() {
                                 Report
                             </Button>
                             <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                        title="Export Chart"
-                                        disabled={isExporting}
-                                    >
-                                        {isExporting ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Download className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </DropdownMenuTrigger>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                disabled={isExporting}
+                                            >
+                                                {isExporting ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    <Download className="h-4 w-4" />
+                                                )}
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p className="text-xs">Export chart (PNG, SVG, PDF)</p>
+                                    </TooltipContent>
+                                </Tooltip>
                                 <DropdownMenuContent align="end" className="w-48">
                                     <DropdownMenuSub>
                                         <DropdownMenuSubTrigger className="text-xs">
@@ -285,15 +314,21 @@ export function Canvas() {
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                                onClick={resetChart}
-                                title="Clear Chart"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                        onClick={resetChart}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p className="text-xs">Clear chart and all encodings</p>
+                                </TooltipContent>
+                            </Tooltip>
                         </>
                     )}
                 </div>
