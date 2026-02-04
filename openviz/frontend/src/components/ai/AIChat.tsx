@@ -1,14 +1,14 @@
 // ============================================
-// AIChat - Enhanced Chat Panel with Q&A Support
+// AIChat - Enhanced Chat Panel with Chart Focus
 // ============================================
 
-import { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle, X, Focus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CodePreview } from '@/components/ui/CodePreview';
-import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory } from '@/store/useVizStore';
+import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode } from '@/store/useVizStore';
 import { isAIAvailable } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 export function AIChat() {
     // Use store state for visibility
     const isOpen = useVizStore(state => state.aiChatOpen);
-    const { setAIChatOpen } = useVizStore();
+    const { setAIChatOpen, clearChatFocus } = useVizStore();
     const [query, setQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -25,7 +25,18 @@ export function AIChat() {
     const dataset = useVizStore(selectDataset);
     const aiLoading = useVizStore(selectAILoading);
     const chatHistory = useVizStore(selectAIChatHistory);
-    const { processAIQuery } = useVizStore();
+    const { processAIQuery, retryLastQuery } = useVizStore();
+    const lastFailedQuery = useVizStore(state => state.lastFailedQuery);
+
+    // Chart focus context
+    const aiFocusedChartId = useVizStore(state => state.aiFocusedChartId);
+    const dashboardConfig = useVizStore(selectDashboardConfig);
+    const viewMode = useVizStore(selectViewMode);
+
+    const focusedChart = useMemo(() => {
+        if (!aiFocusedChartId || !dashboardConfig) return null;
+        return dashboardConfig.charts.find(c => c.id === aiFocusedChartId) || null;
+    }, [aiFocusedChartId, dashboardConfig]);
 
     const aiAvailable = isAIAvailable();
     const hasData = !!dataset;
@@ -54,13 +65,49 @@ export function AIChat() {
         await processAIQuery(currentQuery);
     };
 
-    // Enhanced suggestions including questions
-    const suggestions = [
-        { text: 'What is the average sales?', type: 'question' },
-        { text: 'Show a bar chart of sales by region', type: 'chart' },
-        { text: 'Create a sales overview dashboard', type: 'dashboard' },
-        { text: 'Summarize this data', type: 'question' },
-    ];
+    const handleClose = () => {
+        setAIChatOpen(false);
+        // Don't clear focus on close — preserve it if user reopens
+    };
+
+    const handleClearFocus = () => {
+        clearChatFocus();
+    };
+
+    // Context-aware suggestions
+    const suggestions = useMemo(() => {
+        if (focusedChart) {
+            // Chart-specific suggestions
+            const chartTitle = focusedChart.title || 'this chart';
+            const xField = focusedChart.encodings.find(e => e.channel === 'x')?.field.name;
+            const yField = focusedChart.encodings.find(e => e.channel === 'y')?.field.name;
+
+            return [
+                { text: `What insights can you see in ${chartTitle}?`, type: 'question' as const },
+                { text: `Change ${chartTitle} to a line chart`, type: 'chart' as const },
+                ...(yField ? [{ text: `What's the trend for ${yField}?`, type: 'question' as const }] : []),
+                ...(xField && yField ? [{ text: `Add color grouping to ${chartTitle}`, type: 'chart' as const }] : []),
+            ].slice(0, 4);
+        }
+
+        if (viewMode === 'dashboard' && dashboardConfig) {
+            // Dashboard-level suggestions
+            return [
+                { text: 'Add a pie chart to the dashboard', type: 'dashboard' as const },
+                { text: 'What patterns do you see across charts?', type: 'question' as const },
+                { text: 'Summarize this dashboard', type: 'question' as const },
+                { text: 'Add a trend line chart', type: 'chart' as const },
+            ];
+        }
+
+        // Default single-chart suggestions
+        return [
+            { text: 'What is the average sales?', type: 'question' as const },
+            { text: 'Show a bar chart of sales by region', type: 'chart' as const },
+            { text: 'Create a sales overview dashboard', type: 'dashboard' as const },
+            { text: 'Summarize this data', type: 'question' as const },
+        ];
+    }, [focusedChart, viewMode, dashboardConfig]);
 
     // Get icon for message type
     const getMessageIcon = (resultType?: string) => {
@@ -76,6 +123,14 @@ export function AIChat() {
         }
     };
 
+    // Placeholder text based on context
+    const placeholderText = useMemo(() => {
+        if (!canSubmit) return 'Load data first...';
+        if (focusedChart) return `Ask about "${focusedChart.title || 'this chart'}"...`;
+        if (viewMode === 'dashboard') return 'Ask about the dashboard...';
+        return 'Ask OpenViz...';
+    }, [canSubmit, focusedChart, viewMode]);
+
     return (
         <AnimatePresence mode="wait">
             {!isOpen ? (
@@ -90,6 +145,10 @@ export function AIChat() {
                     className="group relative flex items-center justify-center w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 border border-white/20 hover:scale-105 active:scale-95 transition-transform"
                 >
                     <Sparkles className="w-4.5 h-4.5" />
+                    {/* Show dot indicator when there's a focused chart */}
+                    {aiFocusedChartId && (
+                        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-400 rounded-full border-2 border-[#0A0A0B] animate-pulse" />
+                    )}
                 </motion.button>
             ) : (
                 <motion.div
@@ -114,12 +173,39 @@ export function AIChat() {
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => setAIChatOpen(false)}
+                            onClick={handleClose}
                             className="h-6 w-6 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
                         >
                             <Minimize2 className="h-3.5 w-3.5" />
                         </Button>
                     </div>
+
+                    {/* Chart Focus Banner */}
+                    {focusedChart && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border-b border-amber-500/20">
+                            <Focus className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[11px] text-amber-300 font-medium truncate">
+                                    {focusedChart.title || 'Untitled Chart'}
+                                </p>
+                                <p className="text-[9px] text-amber-400/60">
+                                    {focusedChart.mark} chart
+                                    {focusedChart.encodings.find(e => e.channel === 'y')
+                                        ? ` — ${focusedChart.encodings.find(e => e.channel === 'y')?.field.name}`
+                                        : ''}
+                                </p>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleClearFocus}
+                                className="h-5 w-5 text-amber-500/60 hover:text-amber-300 hover:bg-amber-500/10 rounded-full shrink-0"
+                                title="Clear chart focus"
+                            >
+                                <X className="h-3 w-3" />
+                            </Button>
+                        </div>
+                    )}
 
                     {/* Status warnings */}
                     {!aiAvailable && (
@@ -140,10 +226,22 @@ export function AIChat() {
                         {chatHistory.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-center py-6">
                                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center mb-3 ring-1 ring-white/5">
-                                    <MessageSquare className="w-5 h-5 text-indigo-400" />
+                                    {focusedChart ? (
+                                        <BarChart3 className="w-5 h-5 text-amber-400" />
+                                    ) : (
+                                        <MessageSquare className="w-5 h-5 text-indigo-400" />
+                                    )}
                                 </div>
-                                <p className="text-sm font-medium text-slate-200 mb-1">How can I help you visualize?</p>
-                                <p className="text-xs text-slate-500 mb-6 max-w-[200px]">I can generate charts, explain data, and build dashboards.</p>
+                                <p className="text-sm font-medium text-slate-200 mb-1">
+                                    {focusedChart
+                                        ? `Ask about "${focusedChart.title || 'this chart'}"`
+                                        : 'How can I help you visualize?'}
+                                </p>
+                                <p className="text-xs text-slate-500 mb-6 max-w-[220px]">
+                                    {focusedChart
+                                        ? 'I can modify, explain, or answer questions about this chart.'
+                                        : 'I can generate charts, explain data, and build dashboards.'}
+                                </p>
                                 <div className="w-full flex flex-col gap-1.5">
                                     {suggestions.map((s, i) => (
                                         <button
@@ -190,11 +288,22 @@ export function AIChat() {
                                                 )}>
                                                     {getMessageIcon(msg.resultType)}
                                                     {msg.resultType === 'text' ? 'Answer' :
-                                                        msg.resultType === 'chart' ? 'Chart Created' :
+                                                        msg.resultType === 'chart' ? 'Chart Updated' :
                                                             msg.resultType === 'dashboard' ? 'Dashboard' : 'Response'}
                                                 </div>
                                             )}
                                             {msg.content}
+
+                                            {/* Retry button for error messages */}
+                                            {msg.role === 'assistant' && msg.resultType === 'error' && lastFailedQuery && !aiLoading && (
+                                                <button
+                                                    onClick={() => retryLastQuery()}
+                                                    className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-300 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors border border-red-500/30"
+                                                >
+                                                    <RefreshCw className="w-3 h-3" />
+                                                    Retry
+                                                </button>
+                                            )}
 
                                             {/* Transparency Mode: Peek Code for chart messages */}
                                             {msg.role === 'assistant' && msg.resultType === 'chart' && msg.echartsOption && (
@@ -227,7 +336,7 @@ export function AIChat() {
                                 ref={inputRef}
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
-                                placeholder={canSubmit ? "Ask OpenViz..." : "Load data first..."}
+                                placeholder={placeholderText}
                                 disabled={!canSubmit}
                                 className="flex-1 h-10 pl-4 pr-12 bg-white/5 border-white/10 focus:border-indigo-500/50 focus:bg-white/10 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl transition-all"
                             />

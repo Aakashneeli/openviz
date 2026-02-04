@@ -77,6 +77,7 @@ export interface Dataset {
 export type EncodingChannel =
     | 'x'
     | 'y'
+    | 'theta'   // For pie/donut chart values
     | 'color'
     | 'size'
     | 'shape'
@@ -211,6 +212,10 @@ export interface AIQueryResult {
     textAnswer?: string;
     insights?: DataInsight[];
     error?: string;
+    filterSpec?: FilterSpec;
+    comparisonSpec?: ComparisonSpec;
+    comparisonResult?: ComparisonResult;
+    forecastResult?: ForecastResult;
 }
 
 /** AI intent classification */
@@ -221,6 +226,9 @@ export type AIIntent =
     | 'modify'             // User modifying current chart (e.g., "Make it a line chart")
     | 'modify_dashboard'   // User modifying current dashboard (e.g., "Add a pie chart")
     | 'explain'            // User asking for explanation (e.g., "Why is sales down?")
+    | 'filter'             // User wants to filter data (e.g., "Only show sales > 1000")
+    | 'compare'            // User wants to compare groups (e.g., "Compare Q1 vs Q2")
+    | 'forecast'           // User wants predictions (e.g., "Forecast next 6 months")
     | 'unknown';
 
 /** AI chat message for conversation history */
@@ -299,6 +307,13 @@ export interface DashboardConfig {
     createdAt: Date;
 }
 
+/** Saved dashboard wrapper with metadata */
+export interface SavedDashboard {
+    id: string;           // same as DashboardConfig.id
+    config: DashboardConfig;
+    updatedAt: Date;
+}
+
 /** Dashboard grid layout */
 export interface DashboardLayout {
     cols: number;
@@ -362,6 +377,100 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 // ============================================
 // File Upload Types
 // ============================================
+
+// ============================================
+// Chart Recommendations
+// ============================================
+
+export interface ChartRecommendation {
+    id: string;
+    mark: MarkType;
+    xField: string;
+    yField: string;
+    colorField?: string;
+    score: number;
+    reason: string;
+}
+
+// ============================================
+// Data Filtering
+// ============================================
+
+export type FilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'notContains' | 'in' | 'notIn' | 'between';
+
+export interface FilterCondition {
+    field: string;
+    operator: FilterOperator;
+    value: unknown;
+    /** For 'between' operator */
+    valueTo?: unknown;
+}
+
+export interface FilterSpec {
+    conditions: FilterCondition[];
+    logic: 'and' | 'or';
+}
+
+// ============================================
+// Report Generation
+// ============================================
+
+export interface ReportSection {
+    type: 'executive_summary' | 'data_overview' | 'chart_narrative' | 'key_findings';
+    title: string;
+    content: string;
+    enabled: boolean;
+}
+
+export interface ReportData {
+    title: string;
+    sections: ReportSection[];
+    generatedAt: Date;
+    datasetName: string;
+}
+
+// ============================================
+// Comparison Mode
+// ============================================
+
+export type ComparisonType = 'category' | 'time_period' | 'metric';
+
+export interface ComparisonSpec {
+    type: ComparisonType;
+    groupField: string;
+    groupValues: [string, string];
+    metricField: string;
+    aggregate: AggregateFunction;
+}
+
+export interface ComparisonResult {
+    spec: ComparisonSpec;
+    groupA: { label: string; value: number; breakdown?: Record<string, number> };
+    groupB: { label: string; value: number; breakdown?: Record<string, number> };
+    difference: number;
+    percentChange: number;
+    summary: string;
+}
+
+// ============================================
+// Predictive Analytics (Forecasting)
+// ============================================
+
+export interface ForecastPoint {
+    x: string | number;
+    y: number;
+    lower?: number;
+    upper?: number;
+}
+
+export interface ForecastResult {
+    method: 'linear' | 'exponential_smoothing' | 'holts_linear';
+    periods: number;
+    points: ForecastPoint[];
+    accuracy?: number;
+    temporalField: string;
+    metricField: string;
+}
 
 /** Supported file types for import */
 export type SupportedFileType = 'csv' | 'json' | 'tsv';

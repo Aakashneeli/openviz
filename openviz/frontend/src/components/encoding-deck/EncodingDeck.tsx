@@ -2,15 +2,38 @@
 // EncodingDeck - DataViz Studio Channels
 // ============================================
 
-import { ArrowUp, Zap, Grid, Eraser, LayoutGrid } from 'lucide-react';
+import { ArrowUp, Zap, Grid, Eraser, LayoutGrid, Database } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { EncodingShelf } from './EncodingShelf';
 import { ChartTypeSelector } from './ChartTypeSelector';
-import { useVizStore } from '@/store/useVizStore';
+import { useVizStore, selectDataset } from '@/store/useVizStore';
 
 export function EncodingDeck() {
+    const dataset = useVizStore(selectDataset);
     const { clearAllShelves } = useVizStore();
+
+    // Show helpful message when no data is loaded
+    if (!dataset) {
+        return (
+            <div className="flex flex-col h-full bg-transparent">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        Visual Mapping
+                    </span>
+                </div>
+                <div className="flex flex-col items-center justify-center flex-1 p-6 text-center">
+                    <div className="w-14 h-14 mb-4 rounded-xl bg-muted/20 border border-dashed border-muted-foreground/20 flex items-center justify-center">
+                        <Database className="w-6 h-6 text-muted-foreground/40" />
+                    </div>
+                    <p className="text-sm text-muted-foreground/80 mb-2">No Data Loaded</p>
+                    <p className="text-xs text-muted-foreground/50 max-w-[200px]">
+                        Upload a dataset from the left panel to start mapping fields to chart channels.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-transparent">

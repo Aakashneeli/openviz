@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import type {
     Dataset,
     FieldInfo,
@@ -24,13 +25,21 @@ import type {
     DataProfile,
     AIMessage,
     DashboardConfig,
+    SavedDashboard,
     ChartSummary,
     DashboardSummary,
+    ChartRecommendation,
+    FilterSpec,
+    ReportData,
+    ComparisonSpec,
+    ComparisonResult,
+    ForecastResult,
 } from '@backend/types';
 import { inferSchema } from '@backend/utils/schemaInference';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { getChartSuggestions } from '@backend/utils/autoChart';
 import { generateDataProfile } from '@backend/services/dataContextService';
+import { toast } from '@/lib/toast';
 
 // ============================================
 // Store Interface
@@ -69,6 +78,7 @@ interface VizState {
 
     // Dashboard Configuration (for multi-chart views)
     dashboardConfig: DashboardConfig | null;
+    savedDashboards: SavedDashboard[];
     viewMode: 'single' | 'dashboard';
     editingChartId: string | null;  // Track which chart is being edited from dashboard
 
@@ -89,7 +99,9 @@ interface VizState {
     // AI State
     aiQuery: string;
     aiChatOpen: boolean; // Added control for chat visibility
+    aiFocusedChartId: string | null; // Chart focused in AI chat (from dashboard)
     aiLoading: boolean;
+    lastFailedQuery: string | null; // For manual retry after AI failure
     aiSuggestions: ChartSuggestion[];
     aiInsights: DataInsight[];
     aiChatHistory: AIMessage[];
@@ -98,6 +110,28 @@ interface VizState {
     chartSummary: ChartSummary | null;
     dashboardSummary: DashboardSummary | null;
     summaryLoading: boolean;
+
+    // Recommendations
+    chartRecommendations: ChartRecommendation[];
+    recommendationsLoading: boolean;
+
+    // Filters
+    activeFilters: FilterSpec | null;
+    filteredData: DataRecord[] | null;
+
+    // Reports
+    reportData: ReportData | null;
+    reportLoading: boolean;
+    showReportModal: boolean;
+
+    // Comparison
+    comparisonMode: boolean;
+    comparisonSpec: ComparisonSpec | null;
+    comparisonResult: ComparisonResult | null;
+
+    // Forecast
+    forecastData: ForecastResult | null;
+    forecastLoading: boolean;
 }
 
 interface VizActions {
@@ -131,12 +165,15 @@ interface VizActions {
     // AI Actions
     setAIQuery: (query: string) => void;
     processAIQuery: (query: string) => Promise<void>;
+    retryLastQuery: () => Promise<void>;
     applySuggestion: (suggestion: ChartSuggestion) => void;
     generateInsights: () => Promise<void>;
     addChatMessage: (message: AIMessage) => void;
     clearChatHistory: () => void;
     setAIChatOpen: (isOpen: boolean) => void;
     toggleAIChat: () => void;
+    openChatForChart: (chartId: string) => void;
+    clearChatFocus: () => void;
 
     // Summary Actions
     generateChartSummary: () => Promise<void>;
@@ -154,7 +191,11 @@ interface VizActions {
     setDashboardConfig: (config: DashboardConfig | null) => void;
     setViewMode: (mode: 'single' | 'dashboard') => void;
     createDashboard: (title?: string) => void;
+    closeDashboard: () => void;
     deleteDashboard: () => void;
+    saveDashboard: () => void;
+    loadDashboard: (id: string) => void;
+    deleteSavedDashboard: (id: string) => void;
     renameDashboard: (title: string) => void;
     addChartToDashboard: (config?: ChartConfig) => void;
     removeChartFromDashboard: (chartId: string) => void;
@@ -170,11 +211,64 @@ interface VizActions {
     // Spec Actions
     updateSpecFromJson: (option: EChartsOption) => void;
     regenerateSpec: () => void;
+
+    // Recommendation Actions
+    generateRecommendations: () => void;
+    applyRecommendation: (rec: ChartRecommendation) => void;
+    dismissRecommendation: (id: string) => void;
+
+    // Filter Actions
+    applyFilter: (spec: FilterSpec) => void;
+    clearFilters: () => void;
+
+    // Report Actions
+    generateReport: () => Promise<void>;
+    downloadReport: () => void;
+    setShowReportModal: (show: boolean) => void;
+
+    // Comparison Actions
+    applyComparison: (spec: ComparisonSpec) => void;
+    clearComparison: () => void;
+
+    // Forecast Actions
+    generateForecast: (periods?: number) => Promise<void>;
+    clearForecast: () => void;
 }
 
 // ============================================
 // Initial State
 // ============================================
+
+// ============================================
+// localStorage Persistence Helpers
+// ============================================
+
+const DASHBOARDS_STORAGE_KEY = 'openviz-dashboards';
+
+function saveDashboardsToStorage(dashboards: SavedDashboard[]): void {
+    try {
+        localStorage.setItem(DASHBOARDS_STORAGE_KEY, JSON.stringify(dashboards));
+    } catch (e) {
+        console.error('Failed to save dashboards to localStorage:', e);
+    }
+}
+
+function loadDashboardsFromStorage(): SavedDashboard[] {
+    try {
+        const raw = localStorage.getItem(DASHBOARDS_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as SavedDashboard[];
+        // Revive Date objects
+        return parsed.map(d => ({
+            ...d,
+            updatedAt: new Date(d.updatedAt),
+            config: { ...d.config, createdAt: new Date(d.config.createdAt) },
+        }));
+    } catch (e) {
+        console.error('Failed to load dashboards from localStorage:', e);
+        return [];
+    }
+}
 
 const initialChartConfig: ChartConfig = {
     id: uuidv4(),
@@ -198,6 +292,7 @@ const initialState: VizState = {
 
     // Dashboard
     dashboardConfig: null,
+    savedDashboards: loadDashboardsFromStorage(),
     viewMode: 'single',
     editingChartId: null,
 
@@ -215,15 +310,39 @@ const initialState: VizState = {
     // AI
     aiQuery: '',
     aiLoading: false,
+    lastFailedQuery: null,
     aiSuggestions: [],
     aiInsights: [],
     aiChatHistory: [],
     aiChatOpen: false,
+    aiFocusedChartId: null,
 
     // Summaries
     chartSummary: null,
     dashboardSummary: null,
     summaryLoading: false,
+
+    // Recommendations
+    chartRecommendations: [],
+    recommendationsLoading: false,
+
+    // Filters
+    activeFilters: null,
+    filteredData: null,
+
+    // Reports
+    reportData: null,
+    reportLoading: false,
+    showReportModal: false,
+
+    // Comparison
+    comparisonMode: false,
+    comparisonSpec: null,
+    comparisonResult: null,
+
+    // Forecast
+    forecastData: null,
+    forecastLoading: false,
 };
 
 // ============================================
@@ -252,6 +371,8 @@ export const useVizStore = create<VizState & VizActions>()(
                         data = await parseCSV(file);
                     } else if (extension === 'json') {
                         data = await parseJSON(file);
+                    } else if (extension === 'xlsx' || extension === 'xls') {
+                        data = await parseExcel(file);
                     } else {
                         throw new Error(`Unsupported file type: ${extension}`);
                     }
@@ -272,12 +393,19 @@ export const useVizStore = create<VizState & VizActions>()(
                         uploadedAt: new Date(),
                     };
 
+                    // Clear old dashboards — they reference fields from previous dataset
+                    saveDashboardsToStorage([]);
+
                     set({
                         dataset,
                         dataProfile: generateDataProfile(data, fields),
                         uploadStatus: { state: 'complete', progress: 100 },
                         encodings: [],
                         vegaSpec: null,
+                        savedDashboards: [],
+                        dashboardConfig: null,
+                        viewMode: 'single',
+                        editingChartId: null,
                     });
 
                     // Generate AI suggestions after loading
@@ -291,13 +419,26 @@ export const useVizStore = create<VizState & VizActions>()(
 
                     set({ aiSuggestions: suggestions });
 
+                    // Generate chart recommendations
+                    get().generateRecommendations();
+
+                    // Show success toast
+                    toast.success('Data loaded successfully', {
+                        description: `${data.length.toLocaleString()} rows, ${fields.length} columns from ${file.name}`,
+                    });
+
                 } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                     set({
                         uploadStatus: {
                             state: 'error',
                             progress: 0,
-                            error: error instanceof Error ? error.message : 'Unknown error',
+                            error: errorMsg,
                         },
+                    });
+                    // Show error toast
+                    toast.error('Failed to load file', {
+                        description: errorMsg,
                     });
                 }
             },
@@ -501,18 +642,34 @@ export const useVizStore = create<VizState & VizActions>()(
                 try {
                     // Use the enhanced AI service
                     const { processAIQuery } = await import('@backend/services/groqService');
-                    const { dashboardConfig, chartConfig } = get();
+                    const { dashboardConfig, chartConfig, aiFocusedChartId } = get();
+
+                    // If chat is focused on a specific chart in a dashboard, use that chart's context
+                    let contextMark = chartConfig?.mark || 'bar';
+                    let contextTitle = chartConfig?.title;
+                    let contextEncodings = encodings;
+                    let focusedChartConfig: ChartConfig | undefined;
+
+                    if (aiFocusedChartId && dashboardConfig) {
+                        focusedChartConfig = dashboardConfig.charts.find(c => c.id === aiFocusedChartId);
+                        if (focusedChartConfig) {
+                            contextMark = focusedChartConfig.mark;
+                            contextTitle = focusedChartConfig.title;
+                            contextEncodings = focusedChartConfig.encodings;
+                        }
+                    }
 
                     const result = await processAIQuery(
                         query,
                         dataProfile,
                         dataset.fields,
                         dataset.data,
-                        encodings,
+                        contextEncodings,
                         aiChatHistory,
                         dashboardConfig,
-                        chartConfig?.mark || 'bar',
-                        chartConfig?.title
+                        contextMark,
+                        contextTitle,
+                        aiFocusedChartId // pass focused chart id for targeted modifications
                     );
 
                     // Handle based on intent
@@ -530,9 +687,41 @@ export const useVizStore = create<VizState & VizActions>()(
                         // Chart creation or modification
                         get().pushToHistory(); // Save for undo
 
-                        // If we're in dashboard mode, add the chart to dashboard
-                        const { dashboardConfig, viewMode } = get();
-                        if (viewMode === 'dashboard' && dashboardConfig) {
+                        const { dashboardConfig, viewMode, aiFocusedChartId: focusId } = get();
+
+                        if (focusId && dashboardConfig) {
+                            // AI is modifying a specific chart in the dashboard
+                            const updatedChart = { ...result.chartConfig!, id: focusId, encodings: result.chartConfig!.encodings };
+                            const updatedCharts = dashboardConfig.charts.map(c =>
+                                c.id === focusId ? updatedChart : c
+                            );
+                            set({
+                                dashboardConfig: { ...dashboardConfig, charts: updatedCharts },
+                            });
+                            get().saveDashboard();
+
+                            // If this chart is maximized (editing in single view), also update the live preview
+                            const { editingChartId } = get();
+                            if (editingChartId === focusId) {
+                                set({
+                                    chartConfig: updatedChart,
+                                    encodings: [...updatedChart.encodings],
+                                });
+                                get().regenerateSpec();
+                            }
+
+                            const chartName = result.chartConfig.title || dashboardConfig.charts.find(c => c.id === focusId)?.title || 'chart';
+                            const assistantMessage: AIMessage = {
+                                id: uuidv4(),
+                                role: 'assistant',
+                                content: result.textAnswer || `Updated "${chartName}" in dashboard`,
+                                timestamp: new Date(),
+                                resultType: 'chart',
+                                chartConfig: result.chartConfig,
+                                echartsOption: editingChartId === focusId ? get().echartsOption || undefined : undefined,
+                            };
+                            get().addChatMessage(assistantMessage);
+                        } else if (viewMode === 'dashboard' && dashboardConfig) {
                             // Add chart to dashboard
                             get().addChartToDashboard(result.chartConfig);
 
@@ -567,11 +756,21 @@ export const useVizStore = create<VizState & VizActions>()(
                             get().addChatMessage(assistantMessage);
                         }
                     } else if (result.dashboardConfig) {
-                        // Dashboard creation
+                        // Dashboard creation — save previous dashboard if any
+                        const { dashboardConfig: prevDashboard } = get();
+                        if (prevDashboard) {
+                            get().saveDashboard();
+                        }
+
                         set({
                             dashboardConfig: result.dashboardConfig,
                             viewMode: 'dashboard',
+                            editingChartId: null,
+                            chartConfig: { ...initialChartConfig, id: uuidv4() },
+                            encodings: [],
+                            echartsOption: null,
                         });
+                        get().saveDashboard();
 
                         const assistantMessage: AIMessage = {
                             id: uuidv4(),
@@ -592,23 +791,104 @@ export const useVizStore = create<VizState & VizActions>()(
                         get().addChatMessage(errorMessage);
                     }
 
+                    // Handle filter result
+                    if (result.filterSpec) {
+                        get().applyFilter(result.filterSpec);
+                        const assistantMessage: AIMessage = {
+                            id: uuidv4(),
+                            role: 'assistant',
+                            content: result.textAnswer || 'Filter applied',
+                            timestamp: new Date(),
+                            resultType: 'text',
+                        };
+                        get().addChatMessage(assistantMessage);
+                    }
+
+                    // Handle comparison result
+                    if (result.comparisonSpec && result.comparisonResult) {
+                        set({
+                            comparisonMode: true,
+                            comparisonSpec: result.comparisonSpec,
+                            comparisonResult: result.comparisonResult,
+                        });
+                    }
+
+                    // Handle forecast result
+                    if (result.forecastResult) {
+                        set({ forecastData: result.forecastResult });
+                        // Regenerate spec if chart was also created
+                        if (result.chartConfig) {
+                            get().regenerateSpec();
+                        }
+                    }
+
                     if (result.insights) {
                         set({ aiInsights: result.insights });
                     }
 
+                    // Clear last failed query on success
+                    set({ lastFailedQuery: null });
+
                 } catch (error) {
                     console.error('AI Query Error:', error);
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+                    // Store the failed query for retry
+                    set({ lastFailedQuery: query });
+
+                    // Create user-friendly error message
+                    const isNetworkError = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch');
+                    const isRateLimitError = errorMsg.includes('429') || errorMsg.includes('rate limit');
+                    const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('timed out');
+
+                    let friendlyMessage = 'Sorry, I encountered an error processing your request.';
+                    if (isNetworkError) {
+                        friendlyMessage = 'Unable to connect to the AI service. Please check your internet connection and try again.';
+                    } else if (isRateLimitError) {
+                        friendlyMessage = 'The AI service is temporarily busy. Please wait a moment and try again.';
+                    } else if (isTimeout) {
+                        friendlyMessage = 'The request took too long to complete. Please try a simpler query or try again.';
+                    } else if (errorMsg.includes('API key')) {
+                        friendlyMessage = 'AI service is not configured. Please check your API key settings.';
+                    }
+
                     const errorMessage: AIMessage = {
                         id: uuidv4(),
                         role: 'assistant',
-                        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                        content: friendlyMessage,
                         timestamp: new Date(),
                         resultType: 'error',
                     };
                     get().addChatMessage(errorMessage);
+
+                    // Show error toast with retry hint
+                    toast.error('AI query failed', {
+                        description: 'Click "Retry" in the chat to try again.',
+                    });
                 } finally {
                     set({ aiLoading: false });
                 }
+            },
+
+            retryLastQuery: async () => {
+                const { lastFailedQuery } = get();
+                if (!lastFailedQuery) return;
+
+                // Remove the last error message from chat history before retrying
+                const { aiChatHistory } = get();
+                const lastMessage = aiChatHistory[aiChatHistory.length - 1];
+                if (lastMessage?.resultType === 'error') {
+                    set({ aiChatHistory: aiChatHistory.slice(0, -1) });
+                }
+                // Also remove the user's last message so it doesn't duplicate
+                const updatedHistory = get().aiChatHistory;
+                const lastUserMessage = updatedHistory[updatedHistory.length - 1];
+                if (lastUserMessage?.role === 'user') {
+                    set({ aiChatHistory: updatedHistory.slice(0, -1) });
+                }
+
+                // Retry the query
+                await get().processAIQuery(lastFailedQuery);
             },
 
             applySuggestion: (suggestion: ChartSuggestion) => {
@@ -649,6 +929,18 @@ export const useVizStore = create<VizState & VizActions>()(
             setAIChatOpen: (isOpen) => set({ aiChatOpen: isOpen }),
 
             toggleAIChat: () => set((state) => ({ aiChatOpen: !state.aiChatOpen })),
+
+            openChatForChart: (chartId: string) => {
+                set({
+                    aiChatOpen: true,
+                    aiFocusedChartId: chartId,
+                    aiChatHistory: [], // Fresh chat for this chart context
+                });
+            },
+
+            clearChatFocus: () => {
+                set({ aiFocusedChartId: null });
+            },
 
             // ----------------------------------------
             // Summary Actions
@@ -803,18 +1095,44 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({ viewMode: mode });
             },
 
+            closeDashboard: () => {
+                const { dashboardConfig } = get();
+                if (dashboardConfig) {
+                    get().saveDashboard();
+                }
+                set({
+                    viewMode: 'single',
+                    dashboardConfig: null,
+                    editingChartId: null,
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
+                    dashboardSummary: null,
+                });
+            },
+
             createDashboard: (title?: string) => {
-                const { chartConfig, encodings } = get();
-                const currentChart = { ...chartConfig, encodings };
+                const { chartConfig, encodings, dashboardConfig: existingDashboard } = get();
+
+                // Save existing dashboard before creating new one
+                if (existingDashboard) {
+                    get().saveDashboard();
+                }
+
+                // If there's a chart with encodings in single view, include it
+                const hasChart = encodings.length > 0;
+                const currentChart = hasChart
+                    ? { ...chartConfig, id: uuidv4(), encodings: [...encodings] }
+                    : null;
 
                 const newDashboard: DashboardConfig = {
                     id: uuidv4(),
                     title: title || 'New Dashboard',
-                    charts: currentChart.encodings.length > 0 ? [currentChart] : [],
+                    charts: currentChart ? [currentChart] : [],
                     layout: {
                         cols: 2,
-                        rows: 10,  // Support up to 20 charts (2 cols x 10 rows)
-                        items: currentChart.encodings.length > 0 ? [{
+                        rows: 10,
+                        items: currentChart ? [{
                             chartId: currentChart.id,
                             col: 0,
                             row: 0,
@@ -828,19 +1146,93 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({
                     dashboardConfig: newDashboard,
                     viewMode: 'dashboard',
+                    editingChartId: null,
+                    // Reset single chart state
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
                 });
+                get().saveDashboard();
             },
 
             deleteDashboard: () => {
+                const { dashboardConfig, savedDashboards } = get();
+                const dashId = dashboardConfig?.id;
+                // Also remove from saved dashboards
+                const updated = dashId ? savedDashboards.filter(d => d.id !== dashId) : savedDashboards;
+                saveDashboardsToStorage(updated);
                 set({
                     dashboardConfig: null,
+                    savedDashboards: updated,
                     viewMode: 'single',
-                    // Reset to a fresh chart
                     chartConfig: { ...initialChartConfig, id: uuidv4() },
                     encodings: [],
                     echartsOption: null,
                     dashboardSummary: null,
                 });
+            },
+
+            saveDashboard: () => {
+                const { dashboardConfig, savedDashboards } = get();
+                if (!dashboardConfig) return;
+                const entry: SavedDashboard = {
+                    id: dashboardConfig.id,
+                    config: dashboardConfig,
+                    updatedAt: new Date(),
+                };
+                const exists = savedDashboards.findIndex(d => d.id === dashboardConfig.id);
+                const updated = exists >= 0
+                    ? savedDashboards.map(d => d.id === dashboardConfig.id ? entry : d)
+                    : [...savedDashboards, entry];
+                saveDashboardsToStorage(updated);
+                set({ savedDashboards: updated });
+            },
+
+            loadDashboard: (id: string) => {
+                const { savedDashboards, dashboardConfig: currentDashboard } = get();
+                const found = savedDashboards.find(d => d.id === id);
+                if (!found) return;
+
+                // If already viewing this dashboard, just switch to dashboard view
+                if (currentDashboard?.id === id) {
+                    set({ viewMode: 'dashboard', editingChartId: null });
+                    return;
+                }
+
+                // Save current dashboard before switching
+                if (currentDashboard) {
+                    get().saveDashboard();
+                }
+
+                set({
+                    dashboardConfig: found.config,
+                    viewMode: 'dashboard',
+                    editingChartId: null,
+                    // Reset single chart state
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
+                });
+            },
+
+            deleteSavedDashboard: (id: string) => {
+                const { savedDashboards, dashboardConfig } = get();
+                const updated = savedDashboards.filter(d => d.id !== id);
+                saveDashboardsToStorage(updated);
+                // If deleting the currently active dashboard, close it
+                if (dashboardConfig?.id === id) {
+                    set({
+                        dashboardConfig: null,
+                        viewMode: 'single',
+                        chartConfig: { ...initialChartConfig, id: uuidv4() },
+                        encodings: [],
+                        echartsOption: null,
+                        dashboardSummary: null,
+                        savedDashboards: updated,
+                    });
+                } else {
+                    set({ savedDashboards: updated });
+                }
             },
 
             renameDashboard: (title: string) => {
@@ -849,6 +1241,7 @@ export const useVizStore = create<VizState & VizActions>()(
                     set({
                         dashboardConfig: { ...dashboardConfig, title },
                     });
+                    get().saveDashboard();
                 }
             },
 
@@ -882,6 +1275,7 @@ export const useVizStore = create<VizState & VizActions>()(
                 };
 
                 set({ dashboardConfig: updatedDashboard });
+                get().saveDashboard();
             },
 
             removeChartFromDashboard: (chartId: string) => {
@@ -890,12 +1284,6 @@ export const useVizStore = create<VizState & VizActions>()(
 
                 const updatedCharts = dashboardConfig.charts.filter(c => c.id !== chartId);
                 const updatedItems = dashboardConfig.layout.items.filter(i => i.chartId !== chartId);
-
-                // If no charts left, delete the dashboard entirely
-                if (updatedCharts.length === 0) {
-                    get().deleteDashboard();
-                    return;
-                }
 
                 set({
                     dashboardConfig: {
@@ -907,6 +1295,7 @@ export const useVizStore = create<VizState & VizActions>()(
                         },
                     },
                 });
+                get().saveDashboard();
             },
 
             duplicateChartInDashboard: (chartId: string) => {
@@ -937,7 +1326,9 @@ export const useVizStore = create<VizState & VizActions>()(
                     chartConfig: { ...chartToEdit },
                     encodings: [...chartToEdit.encodings],
                     viewMode: 'single',
-                    editingChartId: chartId,  // Track which chart we're editing
+                    editingChartId: chartId,
+                    aiFocusedChartId: chartId,  // Scope AI chat to this chart
+                    aiChatHistory: [],           // Fresh chat for this chart context
                     chartSummary: null,
                     aiInsights: [],
                 });
@@ -958,20 +1349,28 @@ export const useVizStore = create<VizState & VizActions>()(
                 set({
                     dashboardConfig: { ...dashboardConfig, charts: updatedCharts },
                 });
+                get().saveDashboard();
             },
 
             syncAndReturnToDashboard: () => {
-                const { editingChartId } = get();
+                const { editingChartId, dashboardConfig } = get();
+
+                if (!dashboardConfig) return;
 
                 // If we were editing a chart from dashboard, sync changes
                 if (editingChartId) {
                     get().updateChartInDashboard(editingChartId);
                 }
 
-                // Return to dashboard and clear editing state
+                // Return to dashboard and clear editing state, reset single chart
                 set({
                     viewMode: 'dashboard',
                     editingChartId: null,
+                    aiFocusedChartId: null,
+                    aiChatHistory: [],
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
                 });
             },
 
@@ -988,6 +1387,190 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             // ----------------------------------------
+            // Recommendation Actions
+            // ----------------------------------------
+
+            generateRecommendations: () => {
+                const { dataset } = get();
+                if (!dataset) return;
+
+                set({ recommendationsLoading: true });
+                try {
+                    // Dynamic import to avoid circular deps
+                    import('@backend/services/recommendationService').then(({ generateRecommendations }) => {
+                        const recs = generateRecommendations(dataset.fields, dataset.data, 5);
+                        set({ chartRecommendations: recs, recommendationsLoading: false });
+                    });
+                } catch {
+                    set({ recommendationsLoading: false });
+                }
+            },
+
+            applyRecommendation: (rec) => {
+                const { dataset } = get();
+                if (!dataset) return;
+
+                const xField = dataset.fields.find(f => f.name === rec.xField);
+                const yField = dataset.fields.find(f => f.name === rec.yField);
+                if (!xField || !yField) return;
+
+                get().pushToHistory();
+
+                const encodings: ShelfPlacement[] = [
+                    { id: uuidv4(), field: xField, channel: 'x' },
+                    { id: uuidv4(), field: yField, channel: 'y', aggregate: yField.type === 'quantitative' ? 'sum' : undefined },
+                ];
+
+                if (rec.colorField) {
+                    const colorField = dataset.fields.find(f => f.name === rec.colorField);
+                    if (colorField) {
+                        encodings.push({ id: uuidv4(), field: colorField, channel: 'color' });
+                    }
+                }
+
+                // Generate a short, clean title (max ~40 chars)
+                const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max - 1) + '…' : s;
+                const shortTitle = `${truncate(rec.yField, 18)} by ${truncate(rec.xField, 15)}`;
+
+                set({
+                    chartConfig: { ...get().chartConfig, mark: rec.mark, title: shortTitle },
+                    encodings,
+                });
+                get().regenerateSpec();
+            },
+
+            dismissRecommendation: (id) => {
+                set((state) => ({
+                    chartRecommendations: state.chartRecommendations.filter(r => r.id !== id),
+                }));
+            },
+
+            // ----------------------------------------
+            // Filter Actions
+            // ----------------------------------------
+
+            applyFilter: (spec) => {
+                const { dataset } = get();
+                if (!dataset) return;
+
+                import('@backend/services/filterService').then(({ applyFilters }) => {
+                    const filtered = applyFilters(dataset.data, spec);
+                    set({ activeFilters: spec, filteredData: filtered });
+                    get().regenerateSpec();
+                });
+            },
+
+            clearFilters: () => {
+                set({ activeFilters: null, filteredData: null });
+                get().regenerateSpec();
+            },
+
+            // ----------------------------------------
+            // Report Actions
+            // ----------------------------------------
+
+            generateReport: async () => {
+                const { dataset, dataProfile, chartConfig, encodings, dashboardConfig, viewMode } = get();
+                if (!dataset || !dataProfile) return;
+
+                set({ reportLoading: true });
+
+                try {
+                    const { generateFullReport } = await import('@backend/services/reportService');
+                    const { generateNarrative } = await import('@backend/services/groqService');
+
+                    const charts = viewMode === 'dashboard' && dashboardConfig
+                        ? dashboardConfig.charts
+                        : encodings.length > 0
+                            ? [{ ...chartConfig, encodings }]
+                            : [];
+
+                    const report = await generateFullReport(
+                        dataProfile,
+                        dataset.data,
+                        charts,
+                        dataset.name,
+                        generateNarrative
+                    );
+
+                    set({ reportData: report, reportLoading: false, showReportModal: true });
+                } catch (error) {
+                    console.error('Report Generation Error:', error);
+                    set({ reportLoading: false });
+                }
+            },
+
+            downloadReport: () => {
+                const { reportData } = get();
+                if (!reportData) return;
+
+                import('@backend/services/reportService').then(({ compileToMarkdown }) => {
+                    const markdown = compileToMarkdown(reportData);
+                    const blob = new Blob([markdown], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${reportData.datasetName.replace(/\.[^/.]+$/, '')}_report.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            },
+
+            setShowReportModal: (show) => set({ showReportModal: show }),
+
+            // ----------------------------------------
+            // Comparison Actions
+            // ----------------------------------------
+
+            applyComparison: (spec) => {
+                const { dataset } = get();
+                if (!dataset) return;
+
+                import('@backend/services/comparisonService').then(({ executeComparison }) => {
+                    const result = executeComparison(dataset.data, spec);
+                    set({ comparisonMode: true, comparisonSpec: spec, comparisonResult: result });
+                    get().regenerateSpec();
+                });
+            },
+
+            clearComparison: () => {
+                set({ comparisonMode: false, comparisonSpec: null, comparisonResult: null });
+                get().regenerateSpec();
+            },
+
+            // ----------------------------------------
+            // Forecast Actions
+            // ----------------------------------------
+
+            generateForecast: async (periods = 6) => {
+                const { dataset, encodings } = get();
+                if (!dataset) return;
+
+                const xEnc = encodings.find(e => e.channel === 'x');
+                const yEnc = encodings.find(e => e.channel === 'y');
+                if (!xEnc || !yEnc) return;
+
+                set({ forecastLoading: true });
+
+                try {
+                    const { generateForecast } = await import('@backend/services/forecastService');
+                    const result = generateForecast(dataset.data, xEnc.field.name, yEnc.field.name, periods);
+                    set({ forecastData: result, forecastLoading: false });
+                    get().regenerateSpec();
+                } catch (error) {
+                    console.error('Forecast Error:', error);
+                    set({ forecastLoading: false });
+                }
+            },
+
+            clearForecast: () => {
+                set({ forecastData: null });
+                get().regenerateSpec();
+            },
+
+            // ----------------------------------------
             // Spec Actions
             // ----------------------------------------
 
@@ -997,7 +1580,7 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             regenerateSpec: () => {
-                const { dataset, chartConfig, encodings, showAnnotations } = get();
+                const { dataset, chartConfig, encodings, showAnnotations, filteredData, forecastData, comparisonResult } = get();
 
                 if (!dataset || encodings.length === 0) {
                     set({ echartsOption: null });
@@ -1011,7 +1594,62 @@ export const useVizStore = create<VizState & VizActions>()(
                     annotations: showAnnotations ? chartConfig.annotations : undefined,
                 };
 
-                const option = buildEChartsOption(configWithEncodings, dataset.data);
+                // Use filtered data if active, otherwise full dataset
+                const dataToUse = filteredData ?? dataset.data;
+
+                let option = buildEChartsOption(configWithEncodings, dataToUse);
+
+                // Append forecast series if present
+                if (forecastData && forecastData.points.length > 0) {
+                    const series = (option.series as unknown[]) || [];
+                    // Dashed forecast line
+                    const forecastSeries = {
+                        type: 'line',
+                        name: 'Forecast',
+                        data: forecastData.points.map(p => [p.x, p.y]),
+                        lineStyle: { type: 'dashed', width: 2, color: '#06b6d4' },
+                        itemStyle: { color: '#06b6d4' },
+                        symbol: 'diamond',
+                        symbolSize: 6,
+                    };
+                    series.push(forecastSeries);
+
+                    // Confidence interval area
+                    if (forecastData.points[0]?.lower !== undefined) {
+                        const ciSeries = {
+                            type: 'line',
+                            name: 'Confidence Interval',
+                            data: forecastData.points.map(p => [p.x, p.lower, p.upper]),
+                            lineStyle: { opacity: 0 },
+                            areaStyle: { color: '#06b6d4', opacity: 0.1 },
+                            stack: undefined,
+                            symbol: 'none',
+                            encode: undefined,
+                        };
+                        series.push(ciSeries);
+                    }
+
+                    option = { ...option, series: series as EChartsOption['series'] };
+                }
+
+                // Add comparison annotations if present
+                if (comparisonResult) {
+                    const series = (option.series as Record<string, unknown>[]) || [];
+                    if (series.length > 0 && !series[0].markLine) {
+                        series[0] = {
+                            ...series[0],
+                            markLine: {
+                                data: [
+                                    { yAxis: comparisonResult.groupA.value, name: comparisonResult.groupA.label, lineStyle: { color: '#3b82f6', type: 'dashed' } },
+                                    { yAxis: comparisonResult.groupB.value, name: comparisonResult.groupB.label, lineStyle: { color: '#f59e0b', type: 'dashed' } },
+                                ],
+                                label: { show: true, color: '#d4d4d8', fontSize: 11 },
+                            },
+                        };
+                    }
+                    option = { ...option, series };
+                }
+
                 set({ echartsOption: option });
 
                 // Update suggestions based on current encodings
@@ -1064,6 +1702,17 @@ async function parseJSON(file: File): Promise<DataRecord[]> {
     }
 }
 
+async function parseExcel(file: File): Promise<DataRecord[]> {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+        throw new Error('Excel file contains no sheets.');
+    }
+    const sheet = workbook.Sheets[firstSheetName];
+    return XLSX.utils.sheet_to_json<DataRecord>(sheet);
+}
+
 // ============================================
 // Selectors (for optimized re-renders)
 // ============================================
@@ -1092,6 +1741,7 @@ export const selectCanvasView = (state: VizState) => state.canvasView;
 
 // Dashboard Selectors
 export const selectDashboardConfig = (state: VizState) => state.dashboardConfig;
+export const selectSavedDashboards = (state: VizState) => state.savedDashboards;
 export const selectViewMode = (state: VizState) => state.viewMode;
 
 // History Selectors
@@ -1108,6 +1758,27 @@ export const selectAIInsights = (state: VizState) => state.aiInsights;
 export const selectChartSummary = (state: VizState) => state.chartSummary;
 export const selectDashboardSummary = (state: VizState) => state.dashboardSummary;
 export const selectSummaryLoading = (state: VizState) => state.summaryLoading;
+
+// Recommendation Selectors
+export const selectChartRecommendations = (state: VizState) => state.chartRecommendations;
+export const selectRecommendationsLoading = (state: VizState) => state.recommendationsLoading;
+
+// Filter Selectors
+export const selectActiveFilters = (state: VizState) => state.activeFilters;
+export const selectFilteredData = (state: VizState) => state.filteredData;
+
+// Report Selectors
+export const selectReportData = (state: VizState) => state.reportData;
+export const selectReportLoading = (state: VizState) => state.reportLoading;
+export const selectShowReportModal = (state: VizState) => state.showReportModal;
+
+// Comparison Selectors
+export const selectComparisonMode = (state: VizState) => state.comparisonMode;
+export const selectComparisonResult = (state: VizState) => state.comparisonResult;
+
+// Forecast Selectors
+export const selectForecastData = (state: VizState) => state.forecastData;
+export const selectForecastLoading = (state: VizState) => state.forecastLoading;
 
 // UI Selectors
 export const selectLeftSidebarOpen = (state: VizState) => state.leftSidebarOpen;

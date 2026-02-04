@@ -89,8 +89,8 @@ All application state lives in `frontend/src/store/useVizStore.ts` with DevTools
 - **Data**: `dataset`, `dataProfile`, `uploadStatus`
 - **Encodings**: `encodings` (array of `ShelfPlacement` mapping fields to channels)
 - **Chart**: `chartConfig`, `echartsOption`, mark type, title
-- **Dashboard**: `dashboardConfig`, `viewMode` (single/dashboard), `editingChartId`
-- **AI**: `aiQuery`, `aiLoading`, `aiChatHistory`, `aiInsights`, `aiSuggestions`
+- **Dashboard**: `dashboardConfig`, `savedDashboards` (persisted to localStorage), `viewMode` (single/dashboard), `editingChartId`
+- **AI**: `aiQuery`, `aiLoading`, `aiChatHistory`, `aiInsights`, `aiSuggestions`, `aiFocusedChartId`
 - **UI**: `canvasView`, `leftSidebarOpen`, `rightSidebarOpen`, `selectedFieldId`, `isDragging`
 - **History**: `past`/`future` arrays for undo/redo
 
@@ -162,6 +162,24 @@ The AI detects user intent to route queries appropriately:
 - `viewMode: 'dashboard'` → Shows grid of charts in `DashboardGrid.tsx`
 - Switching preserves state via `editingChartId` for round-trip editing
 
+**Dashboard Persistence (localStorage):**
+- Dashboards are saved to `localStorage` key `openviz-dashboards` as `SavedDashboard[]`
+- Auto-save triggers on: create, rename, add/remove/update chart
+- `closeDashboard()` saves then nullifies `dashboardConfig` (returns to clean single view)
+- `setViewMode('single')` is a lightweight toggle that keeps the dashboard in memory (used during chart editing)
+- `loadDataFromFile()` clears all saved dashboards (old dashboards reference stale fields)
+- `DashboardList.tsx` in the left sidebar shows saved dashboards only when a dataset is loaded
+
+**AI Chat Context Focus:**
+- `aiFocusedChartId` tracks which dashboard chart the AI chat is scoped to
+- `openChatForChart(chartId)` sets focus, clears chat history, and opens the chat panel
+- Each chart card in `DashboardGrid` has a sparkle button that calls `openChatForChart`
+- When focused, `processAIQuery` passes that chart's encodings/mark/title to the AI instead of single-view state
+- AI modifications with a focused chart update that specific chart in the dashboard (not add a new one)
+- `formatFocusedChartContext()` in `groqService.ts` generates detailed context for the LLM
+- `AIChat.tsx` shows an amber banner with the focused chart name, context-aware suggestions, and tailored placeholder text
+- Clearing focus (X button on banner) returns to general chat mode
+
 ## Type System
 
 All types are defined in `backend/types/index.ts`. Key types:
@@ -181,6 +199,7 @@ interface Dataset { id, name, fields, rowCount, data, uploadedAt }
 interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
 interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor? }
 interface DashboardConfig { id, title?, charts, layout, createdAt }
+interface SavedDashboard { id, config: DashboardConfig, updatedAt: Date }
 
 // AI types
 type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard' | 'explain' | 'unknown'
@@ -267,7 +286,28 @@ const result = executeDataQuery(data, {
 - **Data Privacy**: Raw datasets are NEVER sent to the AI. Only metadata/statistics are shared.
 - **Undo/Redo**: Automatically managed via history middleware in store
 - **Chart Library**: Switched from Vega-Lite to **ECharts** for primary rendering (Vega utilities still exist but are legacy)
-- **State Persistence**: Consider adding localStorage persistence if implementing save/load features
+- **State Persistence**: Dashboards are persisted to `localStorage`. Cleared on new data upload.
+
+## Critical Rules
+
+### React Hooks Order
+**NEVER place an early `return` before hook calls in a component.** All `useState`, `useEffect`, `useMemo`, `useRef`, and store selectors (`useVizStore(...)`) must be called unconditionally at the top of the component — before any conditional returns. React requires hooks to run in the same order every render.
+
+```typescript
+// WRONG — will crash React
+function MyComponent() {
+    const data = useVizStore(selectData);
+    if (!data) return null;          // ← early return BEFORE useState
+    const [open, setOpen] = useState(false); // ← React error: hook order changed
+}
+
+// CORRECT — hooks first, then conditional return
+function MyComponent() {
+    const data = useVizStore(selectData);
+    const [open, setOpen] = useState(false); // ← all hooks called first
+    if (!data) return null;          // ← safe to return after all hooks
+}
+```
 
 ## References
 

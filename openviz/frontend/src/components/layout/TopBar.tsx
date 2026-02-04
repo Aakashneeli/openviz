@@ -90,7 +90,7 @@ export function TopBar() {
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv,.json,.tsv"
+                    accept=".csv,.json,.tsv,.xlsx,.xls"
                     onChange={handleFileSelect}
                     className="hidden"
                 />

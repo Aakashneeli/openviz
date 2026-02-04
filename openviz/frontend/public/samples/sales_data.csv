@@ -1,0 +1,53 @@
+Date,Region,Product,Category,Revenue,Units,Profit
+2024-01-05,North,Widget A,Electronics,12500,250,3750
+2024-01-05,South,Widget B,Electronics,8900,178,2670
+2024-01-05,East,Gadget X,Home & Garden,15600,312,4680
+2024-01-05,West,Widget A,Electronics,11200,224,3360
+2024-01-12,North,Gadget Y,Home & Garden,9800,196,2940
+2024-01-12,South,Widget A,Electronics,14300,286,4290
+2024-01-12,East,Widget B,Electronics,7600,152,2280
+2024-01-12,West,Gadget X,Home & Garden,18900,378,5670
+2024-01-19,North,Widget B,Electronics,10500,210,3150
+2024-01-19,South,Gadget X,Home & Garden,13200,264,3960
+2024-01-19,East,Widget A,Electronics,16800,336,5040
+2024-01-19,West,Gadget Y,Home & Garden,8400,168,2520
+2024-01-26,North,Gadget X,Home & Garden,19500,390,5850
+2024-01-26,South,Widget B,Electronics,11800,236,3540
+2024-01-26,East,Gadget Y,Home & Garden,7200,144,2160
+2024-01-26,West,Widget A,Electronics,14600,292,4380
+2024-02-02,North,Widget A,Electronics,15800,316,4740
+2024-02-02,South,Gadget Y,Home & Garden,9100,182,2730
+2024-02-02,East,Widget B,Electronics,12400,248,3720
+2024-02-02,West,Gadget X,Home & Garden,17300,346,5190
+2024-02-09,North,Gadget Y,Home & Garden,8600,172,2580
+2024-02-09,South,Widget A,Electronics,13900,278,4170
+2024-02-09,East,Gadget X,Home & Garden,20100,402,6030
+2024-02-09,West,Widget B,Electronics,10200,204,3060
+2024-02-16,North,Widget B,Electronics,11300,226,3390
+2024-02-16,South,Gadget X,Home & Garden,16500,330,4950
+2024-02-16,East,Widget A,Electronics,14100,282,4230
+2024-02-16,West,Gadget Y,Home & Garden,7800,156,2340
+2024-02-23,North,Gadget X,Home & Garden,18200,364,5460
+2024-02-23,South,Widget B,Electronics,9600,192,2880
+2024-02-23,East,Gadget Y,Home & Garden,8100,162,2430
+2024-02-23,West,Widget A,Electronics,15200,304,4560
+2024-03-01,North,Widget A,Electronics,16900,338,5070
+2024-03-01,South,Gadget Y,Home & Garden,10400,208,3120
+2024-03-01,East,Widget B,Electronics,13600,272,4080
+2024-03-01,West,Gadget X,Home & Garden,19800,396,5940
+2024-03-08,North,Gadget Y,Home & Garden,9300,186,2790
+2024-03-08,South,Widget A,Electronics,14800,296,4440
+2024-03-08,East,Gadget X,Home & Garden,21500,430,6450
+2024-03-08,West,Widget B,Electronics,11600,232,3480
+2024-03-15,North,Widget B,Electronics,12700,254,3810
+2024-03-15,South,Gadget X,Home & Garden,17800,356,5340
+2024-03-15,East,Widget A,Electronics,15500,310,4650
+2024-03-15,West,Gadget Y,Home & Garden,8900,178,2670
+2024-03-22,North,Gadget X,Home & Garden,20400,408,6120
+2024-03-22,South,Widget B,Electronics,10900,218,3270
+2024-03-22,East,Gadget Y,Home & Garden,9500,190,2850
+2024-03-22,West,Widget A,Electronics,16200,324,4860
+2024-03-29,North,Widget A,Electronics,17600,352,5280
+2024-03-29,South,Gadget Y,Home & Garden,11200,224,3360
+2024-03-29,East,Widget B,Electronics,14900,298,4470
+2024-03-29,West,Gadget X,Home & Garden,22100,442,6630

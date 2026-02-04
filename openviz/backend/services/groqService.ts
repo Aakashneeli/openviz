@@ -20,6 +20,8 @@ import type {
     DashboardConfig,
     DashboardLayout,
     AggregateFunction,
+    FilterSpec,
+    ComparisonSpec,
 } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { executeDataQuery, formatProfileForLLM } from './dataContextService';
@@ -30,16 +32,23 @@ import { generateAnnotations } from './annotationService';
 // Configuration
 // ============================================
 
+// AI Proxy URL - In production, this should point to your Cloudflare Worker
+// For local development without proxy, set VITE_GROQ_API_KEY to use direct calls
+const AI_PROXY_URL = import.meta.env.VITE_AI_PROXY_URL;
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'meta-llama/llama-4-maverick-17b-128e-instruct';
 
-// Initialize Groq client
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
+// Initialize Groq client (only used as fallback for local development)
 let groqClient: Groq | null = null;
 
 function getGroqClient(): Groq {
     if (!groqClient) {
         if (!GROQ_API_KEY) {
-            throw new Error('GROQ_API_KEY is not configured. Please add VITE_GROQ_API_KEY to your .env file.');
+            throw new Error('GROQ_API_KEY is not configured. Please add VITE_GROQ_API_KEY to your .env file or set VITE_AI_PROXY_URL for production.');
         }
         groqClient = new Groq({
             apiKey: GROQ_API_KEY,
@@ -47,6 +56,141 @@ function getGroqClient(): Groq {
         });
     }
     return groqClient;
+}
+
+// ============================================
+// AI Call with Retry Logic
+// ============================================
+
+interface ChatMessage {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+}
+
+interface ChatCompletionRequest {
+    model: string;
+    messages: ChatMessage[];
+    temperature?: number;
+    max_tokens?: number;
+    response_format?: { type: 'json_object' | 'text' };
+    stream?: boolean;
+}
+
+interface ChatCompletionResponse {
+    choices: Array<{
+        message: {
+            content: string;
+            role: string;
+        };
+        finish_reason: string;
+    }>;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
+}
+
+/**
+ * Sleep for a specified duration (for retry delays)
+ */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Call AI service with automatic retry on failure
+ * Uses proxy in production, direct Groq client in development
+ */
+async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            // Use proxy if configured, otherwise fall back to direct Groq client
+            if (AI_PROXY_URL) {
+                return await callAIProxy(request);
+            } else {
+                return await callAIDirect(request);
+            }
+        } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+
+            // Don't retry on client errors (4xx)
+            if (lastError.message.includes('400') ||
+                lastError.message.includes('401') ||
+                lastError.message.includes('403')) {
+                throw lastError;
+            }
+
+            // Calculate exponential backoff delay
+            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+
+            // Check if we got a retry-after header hint
+            const retryAfter = (error as { retryAfter?: number })?.retryAfter;
+            const actualDelay = retryAfter ? retryAfter * 1000 : delay;
+
+            console.warn(`AI request failed (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${actualDelay}ms...`, lastError.message);
+
+            if (attempt < MAX_RETRIES - 1) {
+                await sleep(actualDelay);
+            }
+        }
+    }
+
+    throw lastError || new Error('AI request failed after all retries');
+}
+
+/**
+ * Call AI via secure proxy (production)
+ */
+async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    const response = await fetch(AI_PROXY_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = (errorData as { error?: string }).error || `HTTP ${response.status}`;
+        const error = new Error(`AI proxy error: ${errorMessage}`);
+        (error as { retryAfter?: number }).retryAfter = (errorData as { retryAfter?: number }).retryAfter;
+        throw error;
+    }
+
+    return await response.json();
+}
+
+/**
+ * Call AI directly via Groq SDK (development fallback)
+ */
+async function callAIDirect(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    const groq = getGroqClient();
+    const response = await groq.chat.completions.create({
+        model: request.model,
+        messages: request.messages,
+        temperature: request.temperature,
+        max_tokens: request.max_tokens,
+        response_format: request.response_format,
+    });
+
+    return {
+        choices: response.choices.map(choice => ({
+            message: {
+                content: choice.message.content || '',
+                role: choice.message.role,
+            },
+            finish_reason: choice.finish_reason || 'stop',
+        })),
+        usage: response.usage ? {
+            prompt_tokens: response.usage.prompt_tokens,
+            completion_tokens: response.usage.completion_tokens,
+            total_tokens: response.usage.total_tokens,
+        } : undefined,
+    };
 }
 
 /**
@@ -323,6 +467,49 @@ function formatDashboardContext(dashboard: DashboardConfig | null): string {
     return lines.join('\n');
 }
 
+/**
+ * Format context for a specific focused chart within a dashboard
+ * Used when AI chat is opened for a specific chart
+ */
+function formatFocusedChartContext(chartId: string, dashboard: DashboardConfig): string {
+    const chart = dashboard.charts.find(c => c.id === chartId);
+    if (!chart) return '';
+
+    const parts: string[] = [];
+    parts.push(`⚡ FOCUSED CHART (user is asking about THIS specific chart):`);
+    parts.push(`Chart Title: "${chart.title || 'Untitled Chart'}"`);
+    parts.push(`Chart Type: ${chart.mark}`);
+    parts.push(`Dashboard: "${dashboard.title || 'Untitled Dashboard'}"`);
+
+    const xEnc = chart.encodings.find(e => e.channel === 'x');
+    const yEnc = chart.encodings.find(e => e.channel === 'y');
+    const colorEnc = chart.encodings.find(e => e.channel === 'color');
+    const sizeEnc = chart.encodings.find(e => e.channel === 'size');
+
+    if (xEnc) {
+        let desc = `X-Axis: ${xEnc.field.name} (${xEnc.field.type})`;
+        if (xEnc.aggregate) desc += ` - aggregated by ${xEnc.aggregate}`;
+        parts.push(desc);
+    }
+    if (yEnc) {
+        let desc = `Y-Axis: ${yEnc.field.name} (${yEnc.field.type})`;
+        if (yEnc.aggregate) desc += ` - aggregated by ${yEnc.aggregate}`;
+        parts.push(desc);
+    }
+    if (colorEnc) parts.push(`Color: ${colorEnc.field.name}`);
+    if (sizeEnc) parts.push(`Size: ${sizeEnc.field.name}`);
+
+    if (xEnc && yEnc) {
+        const aggText = yEnc.aggregate ? `${yEnc.aggregate} of ` : '';
+        parts.push(`\nThis chart shows: ${aggText}${yEnc.field.name} by ${xEnc.field.name}`);
+    }
+
+    const allFields = chart.encodings.map(e => e.field.name);
+    parts.push(`All mapped fields: ${allFields.join(', ')}`);
+
+    return parts.join('\n');
+}
+
 
 /**
  * Enhanced intent detection with reasoning
@@ -336,8 +523,6 @@ export async function detectIntent(
     chatHistory?: AIMessage[]
 ): Promise<{ intent: AIIntent; reasoning: string }> {
     try {
-        const groq = getGroqClient();
-
         // Build context from recent chat history
         const recentHistory = chatHistory?.slice(-3) || [];
         const conversationContext = recentHistory.length > 0
@@ -364,18 +549,31 @@ export async function detectIntent(
    - **IMPORTANT**: Only valid when hasCurrentChart=true
 
 4. **dashboard** - User wants to CREATE a NEW multi-chart dashboard (MULTIPLE visualizations together)
-   - Keywords: dashboard, overview, multiple charts, collection, summary view
-   - Examples: "Create a dashboard", "Show me an overview of everything", "Build a multi-chart view"
-   - **IMPORTANT**: Only use this if user explicitly asks for dashboard/overview. If they mention a specific chart type, use "chart" instead
+   - Keywords: dashboard, overview, variety, multiple charts, several charts, collection, summary view, different types
+   - Examples: "Create a dashboard", "Show me an overview", "Build a multi-chart view", "Create a dashboard with variety of charts"
+   - **IMPORTANT**: Use this when user asks for "variety", "multiple", "several", "different types" of charts
+   - **IMPORTANT**: Even if a dashboard exists, if user asks for "variety" or "multiple" charts, use "dashboard" NOT "modify_dashboard"
 
-5. **modify_dashboard** - User wants to ADD/REMOVE charts from EXISTING dashboard
-   - Keywords: add, remove, delete, another, one more, get rid of
-   - Examples: "Add a pie chart", "Remove the first chart", "Delete this", "Add another visualization"
-   - **IMPORTANT**: Only valid when hasDashboard=true
+5. **modify_dashboard** - User wants to ADD/REMOVE specific charts from EXISTING dashboard
+   - Keywords: add, remove, delete, another, one more, get rid of, include another
+   - Examples: "Add a pie chart", "Remove the first chart", "Delete this", "Add one more visualization"
+   - **IMPORTANT**: Only valid when hasDashboard=true AND user is asking to add/remove SPECIFIC charts (not asking for variety)
 
 6. **explain** - User wants to know WHY something is happening in the data
    - Keywords: why, explain trend, what caused, reason for
    - Examples: "Why is this spike here?", "Explain the trend", "What caused this?"
+
+7. **filter** - User wants to FILTER the data (show subset)
+   - Keywords: filter, only show, where, greater than, less than, exclude, between, remove rows, top N
+   - Examples: "Only show sales > 1000", "Filter to USA", "Exclude returns", "Show where region is East"
+
+8. **compare** - User wants to COMPARE two groups or periods
+   - Keywords: compare, vs, versus, difference between, year over year, A vs B
+   - Examples: "Compare Q1 vs Q2", "East vs West sales", "2023 versus 2024"
+
+9. **forecast** - User wants PREDICTIONS or future projections
+   - Keywords: forecast, predict, project, next N months, future, trend forward, extrapolate
+   - Examples: "Forecast next 6 months", "Predict future sales", "Project revenue"
 
 **CONTEXT:**
 - Current chart exists: ${hasCurrentChart ? 'YES' : 'NO'}
@@ -392,12 +590,12 @@ ${dataContext ? `- Data available: ${dataContext}` : ''}${conversationContext}
 
 Respond with JSON:
 {
-  "intent": "question|chart|modify|dashboard|modify_dashboard|explain",
+  "intent": "question|chart|modify|dashboard|modify_dashboard|explain|filter|compare|forecast",
   "reasoning": "Brief explanation of why you chose this intent (1-2 sentences)"
 }`;
 
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
@@ -417,15 +615,22 @@ Respond with JSON:
             const intentStr = parsed.intent.toLowerCase().trim();
             let finalIntent: AIIntent = 'chart';
 
-            if (intentStr.includes('question')) finalIntent = 'question';
+            if (intentStr.includes('filter')) finalIntent = 'filter';
+            else if (intentStr.includes('compare')) finalIntent = 'compare';
+            else if (intentStr.includes('forecast')) finalIntent = 'forecast';
+            else if (intentStr.includes('question')) finalIntent = 'question';
             else if (intentStr.includes('modify_dashboard')) finalIntent = hasDashboard ? 'modify_dashboard' : 'dashboard';
             else if (intentStr.includes('modify')) finalIntent = hasCurrentChart ? 'modify' : 'chart';
             else if (intentStr.includes('dashboard')) {
                 // Check if user is trying to add/remove from existing dashboard
-                if (hasDashboard && /add|another|more|include|delete|remove|take away|get rid/i.test(query)) {
+                // vs create a fresh dashboard with multiple charts
+                const isModifyRequest = hasDashboard && /add|another|more|include|delete|remove|take away|get rid/i.test(query);
+                const isFreshDashboardRequest = /variety|multiple|several|different types|collection of|new dashboard|create.*dashboard|build.*dashboard/i.test(query);
+
+                if (isModifyRequest && !isFreshDashboardRequest) {
                     finalIntent = 'modify_dashboard';
                 } else {
-                    finalIntent = 'dashboard';
+                    finalIntent = 'dashboard';  // Create fresh dashboard with multiple charts
                 }
             }
             else if (intentStr.includes('chart')) finalIntent = 'chart';
@@ -454,6 +659,21 @@ Respond with JSON:
  */
 function fallbackIntentDetection(query: string, hasCurrentChart: boolean): AIIntent {
     const lowerQuery = query.toLowerCase();
+
+    // Filter patterns
+    if (/\b(filter|only show|where|exclude|between|greater than|less than|remove rows)\b/i.test(lowerQuery)) {
+        return 'filter';
+    }
+
+    // Compare patterns
+    if (/\b(compare|vs\.?|versus|difference between|year over year)\b/i.test(lowerQuery)) {
+        return 'compare';
+    }
+
+    // Forecast patterns
+    if (/\b(forecast|predict|project|next \d+|future|extrapolate)\b/i.test(lowerQuery)) {
+        return 'forecast';
+    }
 
     // Dashboard patterns - be more specific to avoid false positives
     if (/\b(dashboard|overview)\b/i.test(lowerQuery) && !/\b(histogram|bar|line|scatter|pie|chart|plot|graph|show|create)\b/i.test(lowerQuery.replace(/dashboard|overview/gi, ''))) {
@@ -485,7 +705,8 @@ export async function processAIQuery(
     chatHistory: AIMessage[] = [],
     currentDashboard: DashboardConfig | null = null,
     currentMark: MarkType = 'bar',
-    currentChartTitle?: string
+    currentChartTitle?: string,
+    focusedChartId?: string | null
 ): Promise<AIQueryResult> {
     const hasCurrentChart = currentEncodings.length > 0;
     const hasDashboard = currentDashboard !== null;
@@ -500,9 +721,14 @@ export async function processAIQuery(
     const chartContext = formatChartContext(currentChartTitle, currentMark, currentEncodings);
     const dashboardContext = formatDashboardContext(currentDashboard);
 
+    // Add focused chart context when operating on a specific dashboard chart
+    const focusedChartContext = focusedChartId && currentDashboard
+        ? formatFocusedChartContext(focusedChartId, currentDashboard)
+        : '';
+
     switch (intent) {
         case 'question':
-            return processDataQuestion(query, dataProfile, fields, data, chatHistory, chartContext, dashboardContext);
+            return processDataQuestion(query, dataProfile, fields, data, chatHistory, focusedChartContext || chartContext, dashboardContext);
         case 'chart':
             return processChartRequest(query, dataProfile, fields, data, chatHistory);
         case 'modify':
@@ -513,6 +739,12 @@ export async function processAIQuery(
             return processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory);
         case 'explain':
             return processExplainRequest(query, dataProfile, fields, data);
+        case 'filter':
+            return processFilterRequest(query, dataProfile, fields);
+        case 'compare':
+            return processCompareRequest(query, dataProfile, fields, data);
+        case 'forecast':
+            return processForecastRequest(query, dataProfile, fields, data);
         default:
             return processChartRequest(query, dataProfile, fields, data, chatHistory);
     }
@@ -536,7 +768,6 @@ async function processDataQuestion(
     dashboardContext: string = ''
 ): Promise<AIQueryResult> {
     try {
-        const groq = getGroqClient();
         const context = formatProfileForLLM(dataProfile);
 
         // Build conversation context from recent messages
@@ -591,7 +822,7 @@ Otherwise, respond with JSON:
 
 Respond with ONLY the JSON.`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
@@ -701,7 +932,6 @@ async function processChartRequest(
     chatHistory: AIMessage[]
 ): Promise<AIQueryResult> {
     try {
-        const groq = getGroqClient();
         const context = formatProfileForLLM(dataProfile);
 
         // Build conversation context
@@ -794,7 +1024,7 @@ ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER R
 
 Respond with ONLY valid JSON.`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
@@ -897,8 +1127,6 @@ async function processModifyRequest(
     _chatHistory: AIMessage[]
 ): Promise<AIQueryResult> {
     try {
-        const groq = getGroqClient();
-
         // Get current chart configuration in detail
         const currentChart = currentEncodings.map(e =>
             `- ${e.channel}: ${e.field.name} (type: ${e.field.type})${e.aggregate ? `, aggregated by ${e.aggregate}` : ''}`
@@ -974,7 +1202,7 @@ ${currentChart}
 
 Respond ONLY with valid JSON.`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
@@ -1046,8 +1274,6 @@ async function processDashboardRequest(
     dataProfile: DataProfile,
     fields: FieldInfo[]
 ): Promise<AIQueryResult> {
-    const groq = getGroqClient();
-
     // Create explicit field list for LLM
     const fieldList = fields.map(f =>
         `- "${f.name}" (${f.type})${f.stats.min !== undefined ? ` [min: ${f.stats.min}, max: ${f.stats.max}]` : ''}`
@@ -1087,7 +1313,7 @@ Respond with ONLY valid JSON:
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            const response = await groq.chat.completions.create({
+            const response = await callAI({
                 model: AI_MODEL,
                 messages: [
                     { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
@@ -1253,8 +1479,6 @@ async function processModifyDashboardRequest(
     _chatHistory: AIMessage[]
 ): Promise<AIQueryResult> {
     try {
-        const groq = getGroqClient();
-
         // Describe current dashboard with details
         const currentCharts = currentDashboard.charts.map((c, i) => {
             const xEnc = c.encodings.find(e => e.channel === 'x');
@@ -1340,7 +1564,7 @@ ${currentCharts || 'No charts yet.'}
 Respond with ONLY valid JSON.`;
 
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
@@ -1479,7 +1703,6 @@ async function processExplainRequest(
     _data: DataRecord[]
 ): Promise<AIQueryResult> {
     try {
-        const groq = getGroqClient();
         const context = formatProfileForLLM(dataProfile);
 
         const prompt = `You are a data analyst explaining patterns in data.
@@ -1509,7 +1732,7 @@ Respond with JSON:
     }
 }`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
@@ -1729,6 +1952,338 @@ function buildChartConfig(
 }
 
 // ============================================
+// Filter Request Processing
+// ============================================
+
+async function processFilterRequest(
+    query: string,
+    _dataProfile: DataProfile,
+    fields: FieldInfo[]
+): Promise<AIQueryResult> {
+    try {
+        const fieldList = fields.map(f => {
+            if (f.type === 'quantitative') return `"${f.name}" (numeric, range: ${f.stats.min}-${f.stats.max})`;
+            if (f.type === 'nominal' || f.type === 'ordinal') {
+                const vals = f.stats.topValues?.slice(0, 5).map(v => v.value).join(', ') || '';
+                return `"${f.name}" (categorical, values: ${vals})`;
+            }
+            return `"${f.name}" (${f.type})`;
+        }).join('\n');
+
+        const prompt = `Parse this natural language filter request into structured filter conditions.
+
+AVAILABLE FIELDS:
+${fieldList}
+
+USER REQUEST: "${query}"
+
+Respond with ONLY valid JSON:
+{
+    "conditions": [
+        {
+            "field": "exact field name",
+            "operator": "eq|neq|gt|gte|lt|lte|contains|notContains|in|notIn|between",
+            "value": "value or array for 'in'",
+            "valueTo": "only for 'between' operator"
+        }
+    ],
+    "logic": "and|or",
+    "summary": "Human-readable description of the filter"
+}`;
+
+        const response = await callAI({
+            model: AI_MODEL,
+            messages: [
+                { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.1,
+            max_tokens: 512,
+            response_format: { type: 'json_object' },
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) throw new Error('No response from AI');
+
+        const parsed = extractJSON(content) as {
+            conditions: Array<{ field: string; operator: string; value: unknown; valueTo?: unknown }>;
+            logic: 'and' | 'or';
+            summary?: string;
+        };
+
+        // Fuzzy match field names
+        const findField = (name: string) => {
+            const lower = name.toLowerCase();
+            return fields.find(f => f.name.toLowerCase() === lower)
+                || fields.find(f => f.name.toLowerCase().includes(lower))
+                || fields.find(f => lower.includes(f.name.toLowerCase()));
+        };
+
+        const validConditions = parsed.conditions
+            .filter(c => findField(c.field))
+            .map(c => ({
+                field: findField(c.field)!.name,
+                operator: c.operator as FilterSpec['conditions'][0]['operator'],
+                value: c.value,
+                valueTo: c.valueTo,
+            }));
+
+        if (validConditions.length === 0) {
+            return { query, intent: 'filter', error: 'Could not parse filter conditions from your request.' };
+        }
+
+        const filterSpec: FilterSpec = {
+            conditions: validConditions,
+            logic: parsed.logic || 'and',
+        };
+
+        return {
+            query,
+            intent: 'filter',
+            filterSpec,
+            textAnswer: parsed.summary || `Applied ${validConditions.length} filter condition(s)`,
+        };
+
+    } catch (error) {
+        console.error('Filter Request Error:', error);
+        return { query, intent: 'filter', error: error instanceof Error ? error.message : 'Failed to parse filter' };
+    }
+}
+
+// ============================================
+// Compare Request Processing
+// ============================================
+
+async function processCompareRequest(
+    query: string,
+    _dataProfile: DataProfile,
+    fields: FieldInfo[],
+    data: DataRecord[]
+): Promise<AIQueryResult> {
+    try {
+        const fieldList = fields.map(f => {
+            if (f.type === 'nominal' || f.type === 'ordinal') {
+                const vals = f.stats.topValues?.slice(0, 8).map(v => v.value).join(', ') || '';
+                return `"${f.name}" (categorical: ${vals})`;
+            }
+            if (f.type === 'quantitative') return `"${f.name}" (numeric)`;
+            return `"${f.name}" (${f.type})`;
+        }).join('\n');
+
+        const prompt = `Parse this comparison request. Identify the group field, two values to compare, and the metric.
+
+AVAILABLE FIELDS:
+${fieldList}
+
+USER REQUEST: "${query}"
+
+Respond with ONLY valid JSON:
+{
+    "groupField": "field to split groups by",
+    "groupValues": ["value A", "value B"],
+    "metricField": "numeric field to compare",
+    "aggregate": "sum|mean|count|min|max"
+}`;
+
+        const response = await callAI({
+            model: AI_MODEL,
+            messages: [
+                { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.1,
+            max_tokens: 512,
+            response_format: { type: 'json_object' },
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) throw new Error('No response from AI');
+
+        const parsed = extractJSON(content) as {
+            groupField: string;
+            groupValues: [string, string];
+            metricField: string;
+            aggregate: string;
+        };
+
+        // Fuzzy match fields
+        const findField = (name: string) => {
+            const lower = name.toLowerCase();
+            return fields.find(f => f.name.toLowerCase() === lower)
+                || fields.find(f => f.name.toLowerCase().includes(lower));
+        };
+
+        const groupField = findField(parsed.groupField);
+        const metricField = findField(parsed.metricField);
+
+        if (!groupField || !metricField) {
+            return { query, intent: 'compare', error: 'Could not identify fields for comparison.' };
+        }
+
+        const { executeComparison } = await import('./comparisonService');
+
+        const comparisonSpec: ComparisonSpec = {
+            type: groupField.type === 'temporal' ? 'time_period' : 'category',
+            groupField: groupField.name,
+            groupValues: parsed.groupValues,
+            metricField: metricField.name,
+            aggregate: (parsed.aggregate as AggregateFunction) || 'sum',
+        };
+
+        const comparisonResult = executeComparison(data, comparisonSpec);
+
+        // Build a grouped bar chart for the comparison
+        const chartConfig: ChartConfig = {
+            id: uuidv4(),
+            mark: 'bar',
+            encodings: [
+                { id: uuidv4(), field: groupField, channel: 'x' as EncodingChannel },
+                { id: uuidv4(), field: metricField, channel: 'y' as EncodingChannel, aggregate: comparisonSpec.aggregate },
+            ],
+            title: `${metricField.name}: ${parsed.groupValues[0]} vs ${parsed.groupValues[1]}`,
+            width: 'container',
+            height: 400,
+            interactive: true,
+        };
+
+        return {
+            query,
+            intent: 'compare',
+            chartConfig,
+            comparisonSpec,
+            comparisonResult,
+            textAnswer: comparisonResult.summary,
+        };
+
+    } catch (error) {
+        console.error('Compare Request Error:', error);
+        return { query, intent: 'compare', error: error instanceof Error ? error.message : 'Failed to process comparison' };
+    }
+}
+
+// ============================================
+// Forecast Request Processing
+// ============================================
+
+async function processForecastRequest(
+    query: string,
+    _dataProfile: DataProfile,
+    fields: FieldInfo[],
+    data: DataRecord[]
+): Promise<AIQueryResult> {
+    try {
+        const fieldList = fields.map(f => `"${f.name}" (${f.type})`).join(', ');
+
+        const prompt = `Parse this forecast request. Identify the temporal field, metric field, and number of periods to forecast.
+
+AVAILABLE FIELDS: ${fieldList}
+
+USER REQUEST: "${query}"
+
+Respond with ONLY valid JSON:
+{
+    "temporalField": "date/time field name",
+    "metricField": "numeric field to forecast",
+    "periods": 6
+}`;
+
+        const response = await callAI({
+            model: AI_MODEL,
+            messages: [
+                { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.1,
+            max_tokens: 256,
+            response_format: { type: 'json_object' },
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) throw new Error('No response from AI');
+
+        const parsed = extractJSON(content) as {
+            temporalField: string;
+            metricField: string;
+            periods: number;
+        };
+
+        // Fuzzy match fields
+        const findField = (name: string) => {
+            const lower = name.toLowerCase();
+            return fields.find(f => f.name.toLowerCase() === lower)
+                || fields.find(f => f.name.toLowerCase().includes(lower));
+        };
+
+        let temporalField = findField(parsed.temporalField);
+        let metricField = findField(parsed.metricField);
+
+        // Fallback: find first temporal and first quantitative
+        if (!temporalField) {
+            temporalField = fields.find(f => f.type === 'temporal') || fields.find(f => f.type === 'nominal' || f.type === 'ordinal');
+        }
+        if (!metricField) {
+            metricField = fields.find(f => f.type === 'quantitative');
+        }
+
+        if (!temporalField || !metricField) {
+            return { query, intent: 'forecast', error: 'Could not identify temporal and metric fields for forecasting.' };
+        }
+
+        const { generateForecast } = await import('./forecastService');
+        const forecastResult = generateForecast(data, temporalField.name, metricField.name, parsed.periods || 6);
+
+        // Create a line chart config for the base data
+        const chartConfig: ChartConfig = {
+            id: uuidv4(),
+            mark: 'line',
+            encodings: [
+                { id: uuidv4(), field: temporalField, channel: 'x' as EncodingChannel },
+                { id: uuidv4(), field: metricField, channel: 'y' as EncodingChannel, aggregate: 'sum' },
+            ],
+            title: `${metricField.name} Forecast (${forecastResult.periods} periods)`,
+            width: 'container',
+            height: 400,
+            interactive: true,
+        };
+
+        return {
+            query,
+            intent: 'forecast',
+            chartConfig,
+            forecastResult,
+            textAnswer: `Generated ${forecastResult.periods}-period forecast for ${metricField.name} using ${forecastResult.method.replace(/_/g, ' ')} method.`,
+        };
+
+    } catch (error) {
+        console.error('Forecast Request Error:', error);
+        return { query, intent: 'forecast', error: error instanceof Error ? error.message : 'Failed to generate forecast' };
+    }
+}
+
+// ============================================
+// Narrative Generation Helper (for Reports)
+// ============================================
+
+export async function generateNarrative(prompt: string): Promise<string> {
+    try {
+        const response = await callAI({
+            model: AI_MODEL,
+            messages: [
+                { role: 'system', content: 'You are a concise data analyst. Write clear, specific insights using numbers. No filler words.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.3,
+            max_tokens: 512,
+        });
+
+        return response.choices[0]?.message?.content || 'Unable to generate narrative.';
+    } catch (error) {
+        console.error('Narrative Generation Error:', error);
+        return 'Failed to generate narrative.';
+    }
+}
+
+// ============================================
 // Legacy Exports (for backwards compatibility)
 // ============================================
 
@@ -1756,8 +2311,6 @@ export async function generateDataInsights(
     fields: FieldInfo[]
 ): Promise<DataInsight[]> {
     try {
-        const groq = getGroqClient();
-
         const dataSummary = {
             rowCount: data.length,
             fields: fields.map(f => ({
@@ -1784,7 +2337,7 @@ Respond with a JSON array (and ONLY the JSON array):
     }
 ]`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
@@ -1822,8 +2375,6 @@ export async function generateChartSummary(
     data: DataRecord[]
 ): Promise<{ summary: string; keyInsights: string[] }> {
     try {
-        const groq = getGroqClient();
-
         // Get field stats for context
         const encodingInfo = chartConfig.encodings.map(e => {
             const profile = dataProfile.fields.find(f => f.name === e.field.name);
@@ -1878,7 +2429,7 @@ Respond with ONLY JSON:
     "keyInsights": ["Specific finding with numbers", "Another specific finding"]
 }`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
@@ -1916,8 +2467,6 @@ export async function generateDashboardSummary(
     data: DataRecord[]
 ): Promise<{ overview: string; chartSummaries: { chartId: string; summary: string }[]; keyTakeaways: string[] }> {
     try {
-        const groq = getGroqClient();
-
         // Build chart overview with key stats
         const chartInfo = dashboardConfig.charts.map((chart, i) => {
             const fields = chart.encodings.map(e => {
@@ -1979,7 +2528,7 @@ Respond with ONLY JSON:
     ]
 }`;
 
-        const response = await groq.chat.completions.create({
+        const response = await callAI({
             model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,

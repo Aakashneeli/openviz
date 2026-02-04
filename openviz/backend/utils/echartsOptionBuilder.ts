@@ -208,7 +208,32 @@ function buildCartesianChart(
     const colorEncoding = config.encodings.find(e => e.channel === 'color');
     const sizeEncoding = config.encodings.find(e => e.channel === 'size');
 
-    const processedData = processDataWithAggregation(data, config.encodings);
+    let processedData = processDataWithAggregation(data, config.encodings);
+
+    // CRITICAL FIX: Sort data by X-axis for line and area charts
+    // This ensures the line connects points in the correct order
+    if (xEncoding && (seriesType === 'line' || mark === 'area')) {
+        const xField = xEncoding.field.name;
+        const xType = xEncoding.field.type;
+
+        processedData = [...processedData].sort((a, b) => {
+            const aVal = a[xField];
+            const bVal = b[xField];
+
+            // Handle temporal data - parse dates for correct sorting
+            if (xType === 'temporal') {
+                const aDate = new Date(String(aVal)).getTime();
+                const bDate = new Date(String(bVal)).getTime();
+                return aDate - bDate;
+            }
+            // Handle numeric data
+            if (xType === 'quantitative') {
+                return (Number(aVal) || 0) - (Number(bVal) || 0);
+            }
+            // Handle categorical - sort alphabetically
+            return String(aVal).localeCompare(String(bVal));
+        });
+    }
 
     const option: EChartsOption = {
         backgroundColor: 'transparent',
@@ -229,23 +254,47 @@ function buildCartesianChart(
         toolbox: TOOLBOX,
     };
 
-    // Configure axes - add explicit data for category axes
+    // Configure axes - ALWAYS use category axis for X to ensure proper distribution
+    // This fixes the issue where temporal/value axes cluster points together
     if (xEncoding) {
-        const xAxisType = getAxisType(xEncoding.field.type);
+        const xFieldType = xEncoding.field.type;
+        // For line/area charts, always use category axis for reliable X-axis distribution
+        // Time axis can cause clustering issues when dates aren't properly parsed
+        const useCategory = seriesType === 'line' || mark === 'area' ||
+            xFieldType === 'nominal' || xFieldType === 'ordinal' || xFieldType === 'temporal';
+
+        const xCategories = processedData.map(d => {
+            const val = d[xEncoding.field.name];
+            // Format dates for display
+            if (xFieldType === 'temporal' && val) {
+                const date = new Date(String(val));
+                if (!isNaN(date.getTime())) {
+                    return date.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: processedData.length > 365 ? '2-digit' : undefined
+                    });
+                }
+            }
+            return String(val ?? '');
+        });
+
         const xAxisConfig: Record<string, unknown> = {
-            type: xAxisType,
+            type: useCategory ? 'category' : getAxisType(xFieldType),
+            data: useCategory ? xCategories : undefined,
             name: xEncoding.field.name,
             nameLocation: 'middle',
             nameGap: 30,
             nameTextStyle: { color: '#e4e4e7', fontSize: 12 },
-            axisLabel: { color: '#a1a1aa', fontSize: 11 },
+            axisLabel: {
+                color: '#a1a1aa',
+                fontSize: 11,
+                rotate: xCategories.length > 10 ? 45 : 0, // Rotate labels if too many
+                interval: xCategories.length > 20 ? Math.floor(xCategories.length / 20) : 0, // Skip some labels if crowded
+            },
             axisLine: { lineStyle: { color: '#3f3f46' } },
             splitLine: { lineStyle: { color: '#27272a' } },
         };
-        // For category axes, set explicit data
-        if (xAxisType === 'category') {
-            xAxisConfig.data = [...new Set(processedData.map(d => d[xEncoding.field.name]))];
-        }
         option.xAxis = xAxisConfig;
     }
 
@@ -269,10 +318,7 @@ function buildCartesianChart(
     // Build series
     const baseSeries: Record<string, unknown> = {
         type: seriesType,
-        encode: {
-            x: xEncoding?.field.name,
-            y: yEncoding?.field.name,
-        },
+        // Don't use encode - use explicit data array for reliable rendering
     };
 
     if (config.fixedColor) {
@@ -311,18 +357,28 @@ function buildCartesianChart(
             itemStyle: { color: DEFAULT_COLORS[index % DEFAULT_COLORS.length] },
         }));
     } else {
-        // Use explicit data array instead of dataset+encode for reliable rendering
-        // This works better for mixed category/value axis combinations
+        // Use explicit data array for reliable rendering
+        // For category X-axis: use just Y values (in order matching xAxis.data)
+        // For value X-axis: use [x, y] pairs
+        const useCategory = seriesType === 'line' || mark === 'area' ||
+            xEncoding?.field.type === 'nominal' || xEncoding?.field.type === 'ordinal' ||
+            xEncoding?.field.type === 'temporal';
+
         const seriesData = processedData.map(d => {
-            const xVal = xEncoding ? d[xEncoding.field.name] : null;
             const yVal = yEncoding ? d[yEncoding.field.name] : null;
-            return [xVal, yVal];
+            if (useCategory) {
+                // Category axis: just return Y values in order
+                return yVal;
+            } else {
+                // Value axis: use [x, y] pairs
+                const xVal = xEncoding ? d[xEncoding.field.name] : null;
+                return [xVal, yVal];
+            }
         });
 
         const series: Record<string, unknown> = {
             ...baseSeries,
             data: seriesData,
-            encode: undefined, // Remove encode when using explicit data
         };
 
         // Add annotations if present
@@ -363,10 +419,19 @@ function mapMarkToSeriesType(mark: MarkType): string {
 // ============================================
 
 function buildPieChartOption(config: ChartConfig, data: DataRecord[]): EChartsOption {
-    const categoryEncoding = config.encodings.find(e => e.channel === 'x');
-    const valueEncoding = config.encodings.find(e => e.channel === 'y');
+    // Support both encoding patterns:
+    // 1. Legacy: x (category) + y (value)
+    // 2. AI-generated: x/color (category) + theta (value)
+    const categoryEncoding = config.encodings.find(e => e.channel === 'x')
+        || config.encodings.find(e => e.channel === 'color');
+    const valueEncoding = config.encodings.find(e => e.channel === 'theta')
+        || config.encodings.find(e => e.channel === 'y');
     const categoryField = categoryEncoding?.field.name || '';
     const valueField = valueEncoding?.field.name || '';
+
+    // Debug logging for troubleshooting
+    console.log('[PieChart] Encodings:', config.encodings.map(e => `${e.channel}=${e.field.name}`));
+    console.log('[PieChart] Category field:', categoryField, 'Value field:', valueField);
 
     const aggregated = new Map<string, number>();
     for (const row of data) {

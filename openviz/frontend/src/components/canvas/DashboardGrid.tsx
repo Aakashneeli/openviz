@@ -2,17 +2,20 @@
 // DashboardGrid - Multi-Chart Display with Controls
 // ============================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { X, Maximize2, Activity, Trash2, Copy, Edit3, Plus, LayoutGrid, Pencil, Check, Sparkles, MessageSquare, ChevronDown } from 'lucide-react';
+import { X, Maximize2, Activity, Trash2, Copy, Edit3, Plus, LayoutGrid, Pencil, Check, Sparkles, MessageSquare, ChevronDown, FileDown, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DashboardSummaryPanel } from '@/components/canvas/DashboardSummaryPanel';
+import { ReportGenerator } from '@/components/report/ReportGenerator';
 import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading } from '@/store/useVizStore';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import type { ChartConfig } from '@backend/types';
+import { exportDashboardToPDF } from '@/services/exportService';
+import { toast } from '@/lib/toast';
 
 interface DashboardChartProps {
     config: ChartConfig;
@@ -23,9 +26,10 @@ interface DashboardChartProps {
     onEdit: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
+    onAskAI: () => void;
 }
 
-function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDelete, onDuplicate }: DashboardChartProps) {
+function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDelete, onDuplicate, onAskAI }: DashboardChartProps) {
     const echartsOption = config.encodings.length > 0
         ? buildEChartsOption(config, data)
         : null;
@@ -68,6 +72,15 @@ function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDe
 
                 {/* Chart Controls - Always visible on hover */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10"
+                        onClick={onAskAI}
+                        title="Ask AI about this chart"
+                    >
+                        <Sparkles className="h-3 w-3" />
+                    </Button>
                     <Button
                         variant="ghost"
                         size="icon"
@@ -214,6 +227,7 @@ export function DashboardGrid() {
     const summaryLoading = useVizStore(selectSummaryLoading);
     const {
         deleteDashboard,
+        closeDashboard,
         renameDashboard,
         removeChartFromDashboard,
         duplicateChartInDashboard,
@@ -221,8 +235,9 @@ export function DashboardGrid() {
         generateDashboardSummary,
         setAIChatOpen,
         processAIQuery,
-        setViewMode,
-        resetChart
+        openChatForChart,
+        resetChart,
+        setShowReportModal,
     } = useVizStore();
 
     const [hoveredChart, setHoveredChart] = useState<string | null>(null);
@@ -231,6 +246,28 @@ export function DashboardGrid() {
     const [editTitle, setEditTitle] = useState('');
     const [isAIGenerating, setIsAIGenerating] = useState(false);
     const [showAddChartMenu, setShowAddChartMenu] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const dashboardRef = useRef<HTMLDivElement>(null);
+
+    const handleExportDashboardPDF = async () => {
+        if (!dashboardRef.current || !dashboard) return;
+
+        setIsExporting(true);
+        try {
+            await exportDashboardToPDF(dashboardRef.current, dashboard.title || 'dashboard');
+            toast.success('Dashboard exported successfully', {
+                description: `${dashboard.charts.length} charts exported to PDF`,
+            });
+        } catch (error) {
+            console.error('Dashboard export failed:', error);
+            toast.error('Failed to export dashboard', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     useEffect(() => {
         const timer = setTimeout(() => setIsLoading(false), 800);
@@ -266,7 +303,7 @@ export function DashboardGrid() {
                     <Button
                         variant="ghost"
                         size="icon"
-                        onClick={deleteDashboard}
+                        onClick={closeDashboard}
                         className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
                         title="Close Dashboard"
                     >
@@ -315,9 +352,10 @@ export function DashboardGrid() {
     };
 
     const handleManualAdd = () => {
-        // Reset chart to empty state and switch to single chart editing mode
+        // Reset chart and switch to single view for manual chart building
+        // Dashboard stays in memory so user can add chart back to it
         resetChart();
-        setViewMode('single');
+        useVizStore.setState({ viewMode: 'single', editingChartId: null });
     };
 
     return (
@@ -448,6 +486,31 @@ export function DashboardGrid() {
                         </AnimatePresence>
                     </div>
                     <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowReportModal(true)}
+                        className="h-7 text-xs bg-white/5 border-white/10 hover:bg-indigo-500/20 hover:border-indigo-500/30 text-slate-300"
+                        title="Generate Report"
+                    >
+                        <FileText className="h-3 w-3 mr-1.5" />
+                        Report
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportDashboardPDF}
+                        disabled={isExporting || dashboard.charts.length === 0}
+                        className="h-7 text-xs bg-white/5 border-white/10 hover:bg-emerald-500/20 hover:border-emerald-500/30 text-slate-300"
+                        title="Export Dashboard as PDF"
+                    >
+                        {isExporting ? (
+                            <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                        ) : (
+                            <FileDown className="h-3 w-3 mr-1.5" />
+                        )}
+                        Export PDF
+                    </Button>
+                    <Button
                         variant="ghost"
                         size="icon"
                         onClick={deleteDashboard}
@@ -459,7 +522,7 @@ export function DashboardGrid() {
                     <Button
                         variant="ghost"
                         size="icon"
-                        onClick={deleteDashboard}
+                        onClick={closeDashboard}
                         className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
                         title="Close Dashboard"
                     >
@@ -469,7 +532,7 @@ export function DashboardGrid() {
             </div>
 
             {/* Grid */}
-            <div className="flex-1 p-4 overflow-auto custom-scrollbar">
+            <div ref={dashboardRef} className="flex-1 p-4 overflow-auto custom-scrollbar">
                 {/* Dashboard Summary Panel */}
                 <DashboardSummaryPanel
                     summary={dashboardSummary}
@@ -516,6 +579,7 @@ export function DashboardGrid() {
                                             onEdit={() => editChartFromDashboard(chart.id)}
                                             onDelete={() => removeChartFromDashboard(chart.id)}
                                             onDuplicate={() => duplicateChartInDashboard(chart.id)}
+                                            onAskAI={() => openChatForChart(chart.id)}
                                         />
                                     ))
                                 )}
@@ -524,6 +588,9 @@ export function DashboardGrid() {
                     </LayoutGroup>
                 )}
             </div>
+
+            {/* Report modal */}
+            <ReportGenerator />
         </div>
     );
 }

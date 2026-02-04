@@ -61,24 +61,45 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
     if (!dataset) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
-                <div className="w-24 h-24 mb-6 rounded-3xl bg-gradient-to-br from-primary/10 to-purple-500/10 border border-border flex items-center justify-center shadow-2xl shadow-primary/5">
-                    <BarChart3 className="w-10 h-10 text-primary/60" />
+                <div className="w-20 h-20 mb-6 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 flex items-center justify-center">
+                    <BarChart3 className="w-9 h-9 text-indigo-400" />
                 </div>
-                <p className="text-xl font-medium text-foreground mb-2">No Data Loaded</p>
-                <p className="text-sm text-muted-foreground">Upload a CSV or JSON file to start visualizing</p>
+                <p className="text-lg font-semibold text-foreground mb-2">Ready to Visualize</p>
+                <p className="text-sm text-muted-foreground text-center max-w-xs mb-4">
+                    Upload a dataset from the left panel to start creating beautiful charts and dashboards.
+                </p>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                    <span className="px-2 py-1 bg-muted/30 rounded">1. Upload data</span>
+                    <span className="text-muted-foreground/30">→</span>
+                    <span className="px-2 py-1 bg-muted/30 rounded">2. Drag fields</span>
+                    <span className="text-muted-foreground/30">→</span>
+                    <span className="px-2 py-1 bg-muted/30 rounded">3. See charts</span>
+                </div>
             </div>
         );
     }
 
     if (!echartsOption) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <div className="w-full max-w-sm p-8 rounded-2xl border-2 border-dashed border-border bg-card/10 text-center hover:border-primary/20 transition-colors">
-                    <p className="text-sm text-muted-foreground mb-4">Drag fields to create your chart</p>
-                    <div className="flex justify-center gap-6 text-xs text-muted-foreground/60">
-                        <span className="bg-secondary/50 px-2 py-1 rounded">X-Axis</span>
-                        <span className="opacity-30">→</span>
-                        <span className="bg-secondary/50 px-2 py-1 rounded">Y-Axis</span>
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
+                <div className="w-full max-w-md p-8 rounded-2xl border-2 border-dashed border-indigo-500/20 bg-indigo-500/5 text-center hover:border-indigo-500/40 hover:bg-indigo-500/10 transition-all">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                        <MousePointer2 className="w-7 h-7 text-indigo-400" />
+                    </div>
+                    <p className="text-base font-medium text-foreground mb-2">Drag Fields to Build Your Chart</p>
+                    <p className="text-sm text-muted-foreground mb-6">
+                        Drag fields from the left panel onto the encoding channels on the right.
+                    </p>
+                    <div className="flex justify-center items-center gap-4 text-xs">
+                        <div className="flex flex-col items-center gap-1">
+                            <span className="px-3 py-1.5 bg-indigo-500/20 border border-indigo-500/30 rounded-lg text-indigo-300 font-medium">X-Axis</span>
+                            <span className="text-muted-foreground/50 text-[10px]">Categories or Time</span>
+                        </div>
+                        <span className="text-indigo-400">+</span>
+                        <div className="flex flex-col items-center gap-1">
+                            <span className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-300 font-medium">Y-Axis</span>
+                            <span className="text-muted-foreground/50 text-[10px]">Values or Measures</span>
+                        </div>
                     </div>
                 </div>
             </div>

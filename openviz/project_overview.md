@@ -3,7 +3,7 @@
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
 >
-> **Last Updated**: January 18, 2026
+> **Last Updated**: January 28, 2026
 
 ---
 
@@ -54,7 +54,9 @@ openviz/
 │   │   │   │   ├── VizPreview.tsx
 │   │   │   │   ├── DashboardGrid.tsx
 │   │   │   │   └── CodeEditor.tsx
-│   │   │   ├── data-shelf/      # Left sidebar field list
+│   │   │   ├── data-shelf/      # Left sidebar field list & dashboard browser
+│   │   │   │   ├── DataShelf.tsx
+│   │   │   │   └── DashboardList.tsx
 │   │   │   ├── encoding-deck/   # Right sidebar channel mapping
 │   │   │   ├── layout/          # App shell and structure
 │   │   │   └── ui/              # Reusable UI primitives
@@ -105,8 +107,8 @@ The entire application state is centralized in a single Zustand store with DevTo
 - **Data Slice**: Raw data (`dataset`), inferred schema (`fields`), `uploadStatus`, and `dataProfile`.
 - **Encoding Slice**: Array of `ShelfPlacement` objects mapping `Field -> Channel`.
 - **Chart Slice**: High-level config (`chartConfig`), generated `echartsOption`, mark type, title.
-- **Dashboard Slice**: `dashboardConfig` for multi-chart layouts, `viewMode` (single/dashboard), `editingChartId`.
-- **AI Slice**: `aiQuery`, `aiLoading`, `aiSuggestions`, `aiInsights`, `aiChatHistory`.
+- **Dashboard Slice**: `dashboardConfig` for multi-chart layouts, `savedDashboards` array (persisted to localStorage), `viewMode` (single/dashboard), `editingChartId`.
+- **AI Slice**: `aiQuery`, `aiLoading`, `aiSuggestions`, `aiInsights`, `aiChatHistory`, `aiFocusedChartId`.
 - **UI Slice**: `canvasView`, `leftSidebarOpen`, `rightSidebarOpen`, `selectedFieldId`, `isDragging`.
 - **History Slice**: `past` and `future` arrays for undo/redo functionality.
 
@@ -118,6 +120,12 @@ The entire application state is centralized in a single Zustand store with DevTo
 - `setViewMode('single' | 'dashboard')` - Toggle between views
 - `editChartFromDashboard(id)` - Edit specific chart
 - `updateChartInDashboard(id)` - Sync edits back to dashboard
+- `saveDashboard()` - Auto-save current dashboard to localStorage
+- `loadDashboard(id)` - Load saved dashboard from list
+- `deleteSavedDashboard(id)` - Permanently remove saved dashboard
+- `closeDashboard()` - Save + deactivate dashboard, return to clean single view
+- `openChatForChart(chartId)` - Open AI chat scoped to a specific dashboard chart
+- `clearChatFocus()` - Return AI chat to general mode
 
 ---
 
@@ -169,8 +177,9 @@ We use **Groq** for ultra-low latency inference, crucial for the "real-time" fee
 | `generateDataInsights(...)` | Heuristic + AI insight generation |
 | `generateChartSummary(...)` | Generate AI summary for a chart |
 | `generateDashboardSummary(...)` | Generate AI summary for dashboard |
-| `formatChartContext(...)` | **NEW** helper to describe current chart to AI |
-| `formatDashboardContext(...)` | **NEW** helper to describe entire dashboard to AI |
+| `formatChartContext(...)` | Helper to describe current chart to AI |
+| `formatDashboardContext(...)` | Helper to describe entire dashboard to AI |
+| `formatFocusedChartContext(...)` | **NEW** Detailed context for a specific focused chart in a dashboard |
 
 ### 4.2. Intent Classification
 The AI detects user intent to route queries appropriately. All responses now include **reasoning** for transparency.
@@ -232,6 +241,20 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 - **Dashboard View**: Grid-based layout engine allowing up to 20 charts.
 - **Auto-Suggest**: "Magic" button to automatically add interesting charts based on data context.
 - **Smart Layout**: Auto-scrolls and adjusts grid based on number of charts.
+- **Persistence**: Dashboards automatically save to browser localStorage on every change.
+- **Dashboard Browser**: Collapsible panel in left sidebar lists all saved dashboards with chart count and last updated timestamp. Only visible when a dataset is loaded.
+- **Quick Access**: Click any saved dashboard to instantly reload it with all charts intact.
+- **Clean Lifecycle**: `closeDashboard()` saves and deactivates (separate from `setViewMode` which is used for chart editing round-trips). New data upload clears stale dashboards.
+- **Breadcrumb Navigation**: When editing a chart from a dashboard, a context bar shows "← Dashboard Name > Editing chart" above the canvas header.
+
+### 🤖 Per-Chart AI Chat (Phase 2.7 - NEW)
+- **Chart-Scoped AI**: Each chart in a dashboard has a sparkle button that opens the AI chat focused on that specific chart.
+- **Focus Banner**: Amber-colored banner in the chat panel shows the focused chart's name, type, and primary field.
+- **Context-Aware Suggestions**: Chat suggestions adapt to the focused chart (e.g., "What insights can you see in Sales Chart?", "Change to a line chart").
+- **In-Place Modifications**: AI modifications update the specific chart within the dashboard, not create a new one.
+- **Maximized View Support**: When a chart is opened in full single-view editing mode (via "Edit" button), the AI chat automatically scopes to that chart. Modifications update both the live preview and the dashboard simultaneously.
+- **Focus Indicator**: Amber pulse dot on the collapsed chat button when a chart is focused.
+- **Clear Focus**: X button on the focus banner returns to general chat mode. Focus auto-clears when returning to dashboard grid.
 
 ### 🎨 Design System
 - **Theme**: "Deep Space" Dark Mode (Zinc-950 backgrounds, Indigo-500/Purple-500 accents).
@@ -308,6 +331,7 @@ interface Dataset { id, name, fields, rowCount, data, uploadedAt }
 interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
 interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor?, annotations? }
 interface DashboardConfig { id, title?, charts, layout, createdAt }
+interface SavedDashboard { id, config: DashboardConfig, updatedAt: Date }  // localStorage wrapper
 interface DataProfile { rowCount, columnCount, fields, summary?, cleaningSuggestions?, generatedAt }
 interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error? }
 interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, echartsOption? }
@@ -379,10 +403,157 @@ interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, e
 **Status**: Blocked by UX design decisions
 **Reason**: Requires design finalization for InsightToast placement, brush styling, and insight formulas
 
+#### ✅ 2.4 PDF Export (Completed Jan 27, 2026)
+**Implementation Details:**
+- **Export Service**: Created `frontend/src/services/exportService.ts` with PDF generation
+  - `exportChartToPDF()`: Exports single chart canvas to PDF
+  - `exportDashboardToPDF()`: Exports all charts (2 per page) with title
+  - Uses **jsPDF directly** with `canvas.toDataURL()` (bypasses html2canvas)
+  - Avoids CSS color parsing issues (`oklab()` not supported by html2canvas)
+- **Single Chart Export**: Download button in `Canvas.tsx` header
+  - Shows loading spinner during export
+  - Captures ECharts canvas element directly
+- **Dashboard Export**: "Export PDF" button in `DashboardGrid.tsx` toolbar
+  - Exports each chart canvas to PDF pages (2 charts per page)
+  - Disabled when no charts present
+
+**Files Created/Modified:**
+- ✅ `frontend/src/services/exportService.ts` (150 lines) - NEW (jsPDF-based)
+- ✅ `frontend/src/components/canvas/Canvas.tsx` (+25 lines) - PDF export button
+- ✅ `frontend/src/components/canvas/DashboardGrid.tsx` (+30 lines) - PDF export
+
+#### ✅ 2.5 AI Dashboard Variety Fix (Completed Jan 27, 2026)
+**Problem**: When user asked for "dashboard with variety of charts", the AI created one chart at a time instead of multiple charts at once.
+
+**Root Cause**: Intent detection was triggering `modify_dashboard` (add one chart) instead of `dashboard` (create fresh with multiple charts) when a dashboard already existed.
+
+**Fix Applied:**
+- Enhanced intent detection prompt to recognize variety/multiple keywords
+- Updated code-level parsing to distinguish fresh dashboard vs modify requests
+- Keywords that now trigger fresh dashboard: `variety`, `multiple`, `several`, `different types`, `collection of`
+
+**Files Modified:**
+- ✅ `backend/services/groqService.ts` - Enhanced `detectIntent()` prompt and parsing logic
+
+#### ✅ 2.6 Dashboard Persistence & Browser (Completed Jan 28, 2026)
+**Problem**: Users lost all dashboard work when closing the view or refreshing the page. No way to manage multiple dashboards.
+
+**Solution**: Implemented automatic localStorage persistence with a dashboard browser panel in the left sidebar.
+
+**Implementation Details:**
+- **localStorage Integration**: All dashboards auto-save to browser storage (`openviz-dashboards` key)
+  - Auto-save triggers on: create, rename, add chart, remove chart, update chart
+  - Revives Date objects on load for accurate timestamps
+  - Graceful error handling for storage failures
+- **SavedDashboard Type**: New wrapper interface with metadata (id, config, updatedAt)
+- **Dashboard Browser Panel**: `DashboardList.tsx` component in left sidebar
+  - Collapsible section below Data Shelf with dashboard count badge
+  - List view with titles, chart counts, and relative timestamps (e.g., "3h ago", "2d ago")
+  - Click-to-load functionality switches to dashboard view instantly
+  - Delete with confirmation (requires 2 clicks to prevent accidents)
+  - Active dashboard highlighted with indigo accent
+  - "New Dashboard" button at top
+  - Empty state message when no saved dashboards
+- **Improved Close Behavior**: DashboardGrid X button now hides (not deletes) dashboard
+  - Close button calls `setViewMode('single')` to preserve dashboard
+  - Separate Trash2 button for permanent deletion
+  - Deleted dashboards are removed from both active state and localStorage
+- **State Management**:
+  - Added `savedDashboards: SavedDashboard[]` to store
+  - `saveDashboard()` - upserts to array and localStorage
+  - `loadDashboard(id)` - loads saved config and switches view
+  - `deleteSavedDashboard(id)` - removes from storage and state
+  - `selectSavedDashboards` selector for component access
+
+**Files Created/Modified:**
+- ✅ `backend/types/index.ts` (+5 lines) - Added `SavedDashboard` interface
+- ✅ `frontend/src/store/useVizStore.ts` (+85 lines) - localStorage persistence + new actions
+- ✅ `frontend/src/components/data-shelf/DashboardList.tsx` (150 lines) - NEW browser panel
+- ✅ `frontend/src/components/layout/AppLayout.tsx` (+3 lines) - Added DashboardList to sidebar
+- ✅ `frontend/src/components/canvas/DashboardGrid.tsx` (+2 lines) - Changed close button behavior
+
+**User Benefits:**
+- ✅ Dashboards survive page refreshes automatically
+- ✅ Work on multiple dashboards and switch between them
+- ✅ Visual timeline of recent work with timestamps
+- ✅ One-click dashboard access from sidebar
+- ✅ Safe deletion with confirmation step
+
+#### ✅ 2.7 Dashboard Flow & Navigation Fixes (Completed Jan 28, 2026)
+**Problem**: Dashboard lifecycle was confusing — closing a dashboard and creating a new one broke, stale dashboards from previous data persisted after page reload, and there was no visual indicator of where the user was in the editing flow.
+
+**Fixes Applied:**
+- **`closeDashboard()` action**: New dedicated action (separate from `setViewMode`) that saves the dashboard, nullifies `dashboardConfig`, and resets to clean single-chart state. Used by the X button in DashboardGrid.
+- **`setViewMode('single')` preserved as lightweight toggle**: Used only during chart editing round-trips — keeps the dashboard in memory while editing a chart from it.
+- **Stale dashboard cleanup**: `loadDataFromFile()` now clears `savedDashboards` from both state and localStorage when new data is uploaded, preventing stale dashboards with invalid field references.
+- **Data-aware DashboardList**: The dashboard panel returns `null` (hidden) when no dataset is loaded. All hooks are called before this conditional return to comply with React's Rules of Hooks.
+- **Breadcrumb navigation bar**: When editing a chart from a dashboard (`editingChartId` is set), Canvas.tsx shows a breadcrumb bar: "← Dashboard Name > Editing chart" with a back button that syncs changes.
+- **`createDashboard()` saves previous**: Before creating a new dashboard, any existing active dashboard is saved first. Single-chart state is reset to prevent stale encodings.
+- **`removeChartFromDashboard` no longer auto-deletes**: Removing the last chart keeps the dashboard alive (just empty). Users must explicitly delete.
+
+**Files Modified:**
+- ✅ `frontend/src/store/useVizStore.ts` - Added `closeDashboard()`, fixed `createDashboard()`, `loadDashboard()`, `syncAndReturnToDashboard()`, `removeChartFromDashboard()`, `loadDataFromFile()`
+- ✅ `frontend/src/components/canvas/DashboardGrid.tsx` - Close buttons use `closeDashboard()`, handleManualAdd bypasses close
+- ✅ `frontend/src/components/canvas/Canvas.tsx` - Added breadcrumb navigation bar with ArrowLeft back button
+- ✅ `frontend/src/components/data-shelf/DashboardList.tsx` - Hidden when no dataset, hooks before conditional return
+
+#### ✅ 2.8 Per-Chart AI Chat Focus (Completed Jan 28, 2026)
+**Problem**: The AI chatbot had no concept of which chart the user wanted to interact with. In a dashboard with multiple charts, the AI couldn't target modifications or answer questions about a specific chart.
+
+**Solution**: Added chart-scoped AI chat that works in both the dashboard grid view and the maximized single-chart editing view.
+
+**Implementation Details:**
+- **Store State**: Added `aiFocusedChartId: string | null` to track which chart the AI is scoped to
+- **New Actions**:
+  - `openChatForChart(chartId)` — sets focus, clears chat history for fresh context, opens chat panel
+  - `clearChatFocus()` — removes chart focus, returns to general mode
+- **Dashboard Grid Integration**: Each chart card has a sparkle (AI) button in the hover toolbar that calls `openChatForChart(chart.id)`
+- **Maximized View Integration**: `editChartFromDashboard(chartId)` now also sets `aiFocusedChartId` so the AI is automatically scoped to the chart being edited in full view
+- **AI Processing Changes** (`processAIQuery` in store):
+  - When `aiFocusedChartId` is set, the focused chart's encodings/mark/title are passed to the AI instead of single-view state
+  - AI modifications update the specific chart in `dashboardConfig.charts` (not add a new one)
+  - When the chart is maximized (`editingChartId === focusId`), also updates `chartConfig`, `encodings`, and calls `regenerateSpec()` so the live preview updates immediately
+  - Includes generated `echartsOption` in chat message for transparency mode
+- **Groq Service Changes** (`groqService.ts`):
+  - `processAIQuery()` accepts optional `focusedChartId` parameter
+  - New `formatFocusedChartContext()` helper generates detailed context string marked "FOCUSED CHART" with chart type, title, all encoding channels, and field descriptions
+  - Focused context is used instead of generic chart context when answering questions
+- **AI Chat UI** (`AIChat.tsx`):
+  - Amber focus banner below header showing chart name, type, and Y-axis field with X button to clear
+  - Context-aware suggestions tailored to the focused chart (e.g., "What insights can you see?", "Change to a line chart", "What's the trend for Revenue?")
+  - Context-aware empty state with chart-specific welcome message
+  - Context-aware placeholder text (e.g., "Ask about 'Sales by Region'...")
+  - Amber pulse dot on collapsed chat FAB when a chart is focused
+  - Dashboard-level suggestions when in dashboard view without chart focus
+- **Focus Lifecycle**:
+  - Set on: sparkle button click in dashboard grid, or chart edit/maximize from dashboard
+  - Cleared on: X button in focus banner, or `syncAndReturnToDashboard()` (back to grid)
+  - Preserved on: chat minimize/reopen (focus persists across chat open/close)
+
+**Files Created/Modified:**
+- ✅ `frontend/src/store/useVizStore.ts` (+60 lines) - `aiFocusedChartId` state, `openChatForChart`, `clearChatFocus`, context-aware `processAIQuery`, focused chart update logic for both grid and maximized views
+- ✅ `backend/services/groqService.ts` (+45 lines) - `focusedChartId` parameter, `formatFocusedChartContext()` helper
+- ✅ `frontend/src/components/ai/AIChat.tsx` (rewritten, 350 lines) - Focus banner, context-aware suggestions/placeholder/empty state, focus indicator dot
+- ✅ `frontend/src/components/canvas/DashboardGrid.tsx` (+10 lines) - `onAskAI` prop, sparkle button on chart cards, `openChatForChart` wiring
+
+**User Benefits:**
+- ✅ Click sparkle on any chart card to get AI help for that specific chart
+- ✅ Maximizing a chart auto-scopes AI to that chart
+- ✅ AI modifications target the correct chart (no accidental new charts)
+- ✅ Changes apply live in both dashboard grid and maximized view
+- ✅ Clear visual indicator of which chart the AI is working on
+- ✅ Smart suggestions that reference actual chart fields and titles
+
 ### 🔮 Phase 3: Advanced Analytics (Planned)
 - **3.1 Client-Side Forecasting**: Exponential smoothing / linear regression in browser.
 - **3.2 "What-If" Sliders**: Parameterized dashboard controls.
 - **3.3 Local LLM**: WebLLM integration for offline privacy.
+
+### 📅 Future Enhancements
+- **Export & Sharing**
+  - 📅 PowerPoint Integration: Export dashboards as editable PPTX slides
+  - 📅 Image Export (PNG/SVG): High-resolution chart images
+  - 📅 Shareable Links: Generate public/private dashboard URLs
 
 ---
 
@@ -414,12 +585,15 @@ npm run lint     # Run ESLint
 ### File Size Reference
 | File | Lines | Purpose |
 |------|-------|---------|
-| `groqService.ts` | 1,991 | AI/LLM integration (expanded with annotations) |
+| `groqService.ts` | ~2,040 | AI/LLM integration (annotations + focused chart context) |
 | `echartsOptionBuilder.ts` | 1,193 | ECharts option generation (19 chart types + annotations) |
-| `useVizStore.ts` | 1,120 | State management (with annotations toggle) |
+| `useVizStore.ts` | ~1,320 | State management (dashboard persistence, AI chat focus, lifecycle) |
 | `schemaInference.ts` | 456 | Type detection + semantic classification |
-| `types/index.ts` | 395 | Type definitions (includes Annotation interface) |
+| `types/index.ts` | ~405 | Type definitions (SavedDashboard, Annotation, etc.) |
+| `AIChat.tsx` | ~350 | AI chat with per-chart focus, context-aware UI |
 | `dataContextService.ts` | 291 | Data profiling with Arquero |
-| `AIChat.tsx` | 233 | Chat UI component |
-| `annotationService.ts` | 210 | Statistical analysis for annotations (NEW) |
-| `CodePreview.tsx` | 133 | Syntax highlighting component (NEW) |
+| `DashboardList.tsx` | ~215 | Dashboard browser panel with animations |
+| `annotationService.ts` | 210 | Statistical analysis for annotations |
+| `DashboardGrid.tsx` | ~580 | Multi-chart dashboard with per-chart AI button |
+| `Canvas.tsx` | ~300 | Single chart view with breadcrumb navigation |
+| `CodePreview.tsx` | 133 | Syntax highlighting component |

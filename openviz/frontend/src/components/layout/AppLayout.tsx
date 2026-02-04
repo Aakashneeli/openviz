@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { DataShelf } from '@/components/data-shelf/DataShelf';
+import { DashboardList } from '@/components/data-shelf/DashboardList';
 import { EncodingDeck } from '@/components/encoding-deck/EncodingDeck';
 import { Canvas } from '@/components/canvas/Canvas';
 import { CommandBar } from '@/components/layout/CommandBar';
@@ -15,6 +16,7 @@ import { DraggableField } from '@/components/data-shelf/DraggableField';
 import { AIChat } from '@/components/ai/AIChat';
 import { useVizStore } from '@/store/useVizStore';
 import { Button } from '@/components/ui/button';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import type { FieldInfo, EncodingChannel } from '@backend/types';
 
 const dropAnimation: DropAnimation = {
@@ -96,8 +98,13 @@ export function AppLayout() {
                                             <ChevronLeft className="h-3 w-3" />
                                         </Button>
                                     </div>
-                                    <div className="flex-1 overflow-hidden">
-                                        <DataShelf />
+                                    <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+                                        <ErrorBoundary componentName="Data Shelf" compact>
+                                            <DataShelf />
+                                        </ErrorBoundary>
+                                        <ErrorBoundary componentName="Dashboard List" compact>
+                                            <DashboardList />
+                                        </ErrorBoundary>
                                     </div>
                                 </div>
                             </motion.aside>
@@ -141,7 +148,9 @@ export function AppLayout() {
                         <div className="flex-1 rounded-xl border border-white/5 bg-transparent overflow-hidden relative">
                             {/* Canvas Background Glow */}
                             <div className="absolute inset-0 bg-gradient-to-t from-purple-900/5 via-transparent to-transparent pointer-events-none" />
-                            <Canvas />
+                            <ErrorBoundary componentName="Canvas">
+                                <Canvas />
+                            </ErrorBoundary>
                         </div>
                     </main>
 
@@ -168,7 +177,9 @@ export function AppLayout() {
                                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Visual Mapping</span>
                                     </div>
                                     <div className="flex-1 overflow-hidden">
-                                        <EncodingDeck />
+                                        <ErrorBoundary componentName="Encoding Deck" compact>
+                                            <EncodingDeck />
+                                        </ErrorBoundary>
                                     </div>
                                 </div>
                             </motion.aside>
@@ -178,7 +189,9 @@ export function AppLayout() {
 
                 {/* Floating AI - Bottom right corner */}
                 <div className="fixed bottom-6 right-6 z-50">
-                    <AIChat />
+                    <ErrorBoundary componentName="AI Chat" compact>
+                        <AIChat />
+                    </ErrorBoundary>
                 </div>
 
                 <DragOverlay dropAnimation={dropAnimation}>
