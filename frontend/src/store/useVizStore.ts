@@ -978,6 +978,20 @@ export const useVizStore = create<VizState & VizActions>()(
                             resultType: 'text',
                         };
                         get().addChatMessage(assistantMessage);
+                    } else if (result.deleteChart) {
+                        // Delete/clear the current chart
+                        get().pushToHistory(); // Save for undo
+                        get().resetChart();
+
+                        const assistantMessage: AIMessage = {
+                            id: uuidv4(),
+                            role: 'assistant',
+                            content: result.textAnswer || 'Chart has been removed.',
+                            timestamp: new Date(),
+                            resultType: 'text',
+                            provider: result.provider,
+                        };
+                        get().addChatMessage(assistantMessage);
                     } else if (result.chartConfig) {
                         // Chart creation or modification
                         get().pushToHistory(); // Save for undo

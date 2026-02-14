@@ -797,13 +797,26 @@ export async function processAIQuery(
 
     console.log(`[AI] Intent: ${intent} | Reasoning: ${reasoning}`);
 
-    // CRITICAL FIX: When user is focused on a dashboard chart and says delete/remove,
-    // always route to modify_dashboard — never to modify (which would replace the chart)
-    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard)\b/i.test(query);
+    // Detect delete/remove requests
+    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard|clear)\b/i.test(query)
+        && /\b(chart|this|it|the|current|visualization|viz|graph)\b/i.test(query);
+
+    // Dashboard mode: route delete to modify_dashboard
     if (focusedChartId && currentDashboard && isDeleteRequest) {
         console.log(`[AI] Overriding intent from "${intent}" to "modify_dashboard" — delete request on focused chart`);
         intent = 'modify_dashboard';
         reasoning = 'User wants to delete a specific chart from the dashboard';
+    }
+
+    // Single chart mode: handle delete directly — clear the chart
+    if (!hasDashboard && hasCurrentChart && isDeleteRequest) {
+        console.log(`[AI] Delete request in single chart mode — clearing chart`);
+        return {
+            query,
+            intent: 'modify',
+            deleteChart: true,
+            textAnswer: 'Chart has been removed.',
+        };
     }
 
     // Build visualization context for question answering
@@ -867,13 +880,26 @@ export async function processAIQueryStreaming(
 
     console.log(`[AI Streaming] Intent: ${intent} | Reasoning: ${reasoning}`);
 
-    // CRITICAL FIX: When user is focused on a dashboard chart and says delete/remove,
-    // always route to modify_dashboard — never to modify (which would replace the chart)
-    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard)\b/i.test(query);
+    // Detect delete/remove requests
+    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard|clear)\b/i.test(query)
+        && /\b(chart|this|it|the|current|visualization|viz|graph)\b/i.test(query);
+
+    // Dashboard mode: route delete to modify_dashboard
     if (focusedChartId && currentDashboard && isDeleteRequest) {
         console.log(`[AI Streaming] Overriding intent from "${intent}" to "modify_dashboard" — delete request on focused chart`);
         intent = 'modify_dashboard';
         reasoning = 'User wants to delete a specific chart from the dashboard';
+    }
+
+    // Single chart mode: handle delete directly — clear the chart
+    if (!hasDashboard && hasCurrentChart && isDeleteRequest) {
+        console.log(`[AI Streaming] Delete request in single chart mode — clearing chart`);
+        return {
+            query,
+            intent: 'modify',
+            deleteChart: true,
+            textAnswer: 'Chart has been removed.',
+        };
     }
 
     // Build visualization context for question answering

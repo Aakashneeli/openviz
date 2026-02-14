@@ -221,6 +221,8 @@ export interface AIQueryResult {
     comparisonSpec?: ComparisonSpec;
     comparisonResult?: ComparisonResult;
     forecastResult?: ForecastResult;
+    /** Signal to clear/delete the current chart in single-chart mode */
+    deleteChart?: boolean;
     /** Which AI provider fulfilled this request */
     provider?: string;
 }
