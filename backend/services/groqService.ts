@@ -633,6 +633,7 @@ export async function detectIntent(
    - Examples: "Forecast next 6 months", "Predict future sales", "Project revenue"
 
 **DISAMBIGUATION RULES (apply these in order):**
+- "delete"/"remove"/"get rid of" a chart + hasDashboard=true → always **modify_dashboard** (NOT modify)
 - If user mentions a specific chart type name (bar, line, pie, histogram, etc.) WITHOUT "make it"/"change"/"switch" → always **chart**
 - "show me"/"visualize"/"display" + field references → **chart** (not question)
 - "What is"/"how much"/"what's the average"/"how many" → **question** (not chart)
@@ -686,7 +687,15 @@ Respond with JSON:
             else if (intentStr.includes('forecast')) finalIntent = 'forecast';
             else if (intentStr.includes('question')) finalIntent = 'question';
             else if (intentStr.includes('modify_dashboard')) finalIntent = hasDashboard ? 'modify_dashboard' : 'dashboard';
-            else if (intentStr.includes('modify')) finalIntent = hasCurrentChart ? 'modify' : 'chart';
+            else if (intentStr.includes('modify')) {
+                // Override: if query is a delete/remove request and dashboard exists, route to modify_dashboard
+                const isDeleteOnDashboard = hasDashboard && /\b(delete|remove|get rid of|take away|discard)\b/i.test(query);
+                if (isDeleteOnDashboard) {
+                    finalIntent = 'modify_dashboard';
+                } else {
+                    finalIntent = hasCurrentChart ? 'modify' : 'chart';
+                }
+            }
             else if (intentStr.includes('dashboard')) {
                 // Check if user is trying to add/remove from existing dashboard
                 // vs create a fresh dashboard with multiple charts
@@ -708,14 +717,14 @@ Respond with JSON:
             };
         } catch {
             // If JSON parsing fails, return fallback
-            const fallback = fallbackIntentDetection(query, hasCurrentChart);
+            const fallback = fallbackIntentDetection(query, hasCurrentChart, hasDashboard);
             return { intent: fallback, reasoning: 'Using fallback pattern matching' };
         }
 
     } catch (error) {
         console.error('Intent detection error, using fallback:', error);
         // Fallback to simple pattern matching if LLM fails
-        const fallback = fallbackIntentDetection(query, hasCurrentChart);
+        const fallback = fallbackIntentDetection(query, hasCurrentChart, hasDashboard);
         return { intent: fallback, reasoning: 'Error occurred, using fallback pattern matching' };
     }
 }
@@ -723,8 +732,13 @@ Respond with JSON:
 /**
  * Fallback pattern-based intent detection (used if LLM fails)
  */
-function fallbackIntentDetection(query: string, hasCurrentChart: boolean): AIIntent {
+function fallbackIntentDetection(query: string, hasCurrentChart: boolean, hasDashboard: boolean = false): AIIntent {
     const lowerQuery = query.toLowerCase();
+
+    // Delete/remove chart from dashboard (must check BEFORE filter to avoid "remove rows" clash)
+    if (hasDashboard && /\b(delete|remove|get rid of|take away|discard)\b/i.test(lowerQuery) && /\b(chart|this|it|the)\b/i.test(lowerQuery)) {
+        return 'modify_dashboard';
+    }
 
     // Filter patterns
     if (/\b(filter|only show|where|exclude|between|greater than|less than|remove rows)\b/i.test(lowerQuery)) {
@@ -779,9 +793,18 @@ export async function processAIQuery(
 
     // Get intent with reasoning
     const dataContext = `${fields.length} fields, ${dataProfile.rowCount} rows`;
-    const { intent, reasoning } = await detectIntent(query, hasCurrentChart, hasDashboard, dataContext, chatHistory);
+    let { intent, reasoning } = await detectIntent(query, hasCurrentChart, hasDashboard, dataContext, chatHistory);
 
     console.log(`[AI] Intent: ${intent} | Reasoning: ${reasoning}`);
+
+    // CRITICAL FIX: When user is focused on a dashboard chart and says delete/remove,
+    // always route to modify_dashboard — never to modify (which would replace the chart)
+    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard)\b/i.test(query);
+    if (focusedChartId && currentDashboard && isDeleteRequest) {
+        console.log(`[AI] Overriding intent from "${intent}" to "modify_dashboard" — delete request on focused chart`);
+        intent = 'modify_dashboard';
+        reasoning = 'User wants to delete a specific chart from the dashboard';
+    }
 
     // Build visualization context for question answering
     const chartContext = formatChartContext(currentChartTitle, currentMark, currentEncodings);
@@ -802,7 +825,7 @@ export async function processAIQuery(
         case 'dashboard':
             return processDashboardRequest(query, dataProfile, fields);
         case 'modify_dashboard':
-            return processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory);
+            return processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory, focusedChartId);
         case 'explain':
             return processExplainRequest(query, dataProfile, fields, data);
         case 'filter':
@@ -840,9 +863,18 @@ export async function processAIQueryStreaming(
 
     // Get intent with reasoning
     const dataContext = `${fields.length} fields, ${dataProfile.rowCount} rows`;
-    const { intent, reasoning } = await detectIntent(query, hasCurrentChart, hasDashboard, dataContext, chatHistory);
+    let { intent, reasoning } = await detectIntent(query, hasCurrentChart, hasDashboard, dataContext, chatHistory);
 
     console.log(`[AI Streaming] Intent: ${intent} | Reasoning: ${reasoning}`);
+
+    // CRITICAL FIX: When user is focused on a dashboard chart and says delete/remove,
+    // always route to modify_dashboard — never to modify (which would replace the chart)
+    const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard)\b/i.test(query);
+    if (focusedChartId && currentDashboard && isDeleteRequest) {
+        console.log(`[AI Streaming] Overriding intent from "${intent}" to "modify_dashboard" — delete request on focused chart`);
+        intent = 'modify_dashboard';
+        reasoning = 'User wants to delete a specific chart from the dashboard';
+    }
 
     // Build visualization context for question answering
     const chartContext = formatChartContext(currentChartTitle, currentMark, currentEncodings);
@@ -887,7 +919,7 @@ export async function processAIQueryStreaming(
             nonStreamResult = await processDashboardRequest(query, dataProfile, fields);
             return { ...nonStreamResult, provider: providerName() };
         case 'modify_dashboard':
-            nonStreamResult = await processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory);
+            nonStreamResult = await processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory, focusedChartId);
             return { ...nonStreamResult, provider: providerName() };
         case 'explain':
             nonStreamResult = await processExplainRequest(query, dataProfile, fields, data);
@@ -1921,15 +1953,57 @@ Respond with ONLY valid JSON.`;
 
 /**
  * Process a request to modify an existing dashboard (add/remove charts)
+ * When focusedChartId is provided and the request is a delete/remove,
+ * we can directly remove the focused chart without needing the LLM.
  */
 async function processModifyDashboardRequest(
     query: string,
     _dataProfile: DataProfile,
     fields: FieldInfo[],
     currentDashboard: DashboardConfig,
-    _chatHistory: AIMessage[]
+    _chatHistory: AIMessage[],
+    focusedChartId?: string | null
 ): Promise<AIQueryResult> {
     try {
+        // SHORTCUT: If the user is focused on a specific chart and asks to delete/remove it,
+        // we can handle this directly without calling the LLM — more reliable and faster.
+        const isDeleteRequest = /\b(delete|remove|drop|get rid of|take away|discard)\b/i.test(query);
+        const isDeleteThis = isDeleteRequest && /\b(this|it|the chart|this chart|current)\b/i.test(query);
+
+        if (focusedChartId && (isDeleteThis || isDeleteRequest)) {
+            const chartToRemove = currentDashboard.charts.find(c => c.id === focusedChartId);
+            if (chartToRemove) {
+                const updatedCharts = currentDashboard.charts.filter(c => c.id !== focusedChartId);
+                const cols = updatedCharts.length <= 2 ? 2 : Math.min(3, Math.ceil(Math.sqrt(updatedCharts.length)));
+                const rows = Math.ceil(updatedCharts.length / cols) || 1;
+
+                const layout: DashboardLayout = {
+                    cols,
+                    rows,
+                    items: updatedCharts.map((chart, index) => ({
+                        chartId: chart.id,
+                        col: index % cols,
+                        row: Math.floor(index / cols),
+                        colSpan: 1,
+                        rowSpan: 1,
+                    })),
+                };
+
+                const dashboardConfig: DashboardConfig = {
+                    ...currentDashboard,
+                    charts: updatedCharts,
+                    layout,
+                };
+
+                return {
+                    query,
+                    intent: 'modify_dashboard',
+                    dashboardConfig,
+                    textAnswer: `Removed "${chartToRemove.title || chartToRemove.mark + ' chart'}" from dashboard (${updatedCharts.length} charts remaining)`,
+                };
+            }
+        }
+
         // Describe current dashboard with details
         const currentCharts = currentDashboard.charts.map((c, i) => {
             const xEnc = c.encodings.find(e => e.channel === 'x');
