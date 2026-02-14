@@ -34,9 +34,19 @@ import type {
     ComparisonSpec,
     ComparisonResult,
     ForecastResult,
+    CrossFilter,
+    CalculatedField,
+    DataSourceInfo,
+    RefreshInterval,
+    DrillLevel,
+    DrillHierarchy,
+    TemporalDrillLevel,
+    DashboardTemplate,
+    DashboardLayoutItem,
 } from '@backend/types';
 import { inferSchema } from '@backend/utils/schemaInference';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
+import { detectHierarchies, getDrillData, getCurrentDrillLevel } from '@backend/services/drillService';
 import { getChartSuggestions } from '@backend/utils/autoChart';
 import { generateDataProfile } from '@backend/services/dataContextService';
 import { toast } from '@/lib/toast';
@@ -69,6 +79,9 @@ interface VizState {
     dataset: Dataset | null;
     uploadStatus: UploadStatus;
     dataProfile: DataProfile | null;
+    dataSource: DataSourceInfo | null;
+    isRefreshing: boolean;
+    lastRefreshedAt: Date | null;
 
     // Encodings
     encodings: ShelfPlacement[];
@@ -101,6 +114,8 @@ interface VizState {
     aiChatOpen: boolean; // Added control for chat visibility
     aiFocusedChartId: string | null; // Chart focused in AI chat (from dashboard)
     aiLoading: boolean;
+    aiStreamingMessageId: string | null; // ID of message currently being streamed
+    aiStreamingText: string; // Partial text being streamed/typed
     lastFailedQuery: string | null; // For manual retry after AI failure
     aiSuggestions: ChartSuggestion[];
     aiInsights: DataInsight[];
@@ -132,6 +147,18 @@ interface VizState {
     // Forecast
     forecastData: ForecastResult | null;
     forecastLoading: boolean;
+
+    // Cross-Chart Filtering
+    crossFilters: CrossFilter[];
+    crossFilterEnabled: boolean;
+
+    // Calculated Fields
+    calculatedFields: CalculatedField[];
+
+    // Drill-Down Navigation
+    drillPath: DrillLevel[];
+    drillHierarchies: DrillHierarchy[];
+    drillActiveField: string | null;
 }
 
 interface VizActions {
@@ -155,6 +182,8 @@ interface VizActions {
     setTitle: (title: string) => void;
     setDimensions: (width: number | 'container', height: number | 'container') => void;
     resetChart: () => void;
+    applyTemplate: (template: import('@/data/chartTemplates').ChartTemplate) => void;
+    applyDashboardTemplate: (template: DashboardTemplate) => void;
 
     // UI Actions
     setCanvasView: (view: CanvasViewMode) => void;
@@ -170,6 +199,7 @@ interface VizActions {
     generateInsights: () => Promise<void>;
     addChatMessage: (message: AIMessage) => void;
     clearChatHistory: () => void;
+    setMessageFeedback: (messageId: string, feedback: 'positive' | 'negative') => void;
     setAIChatOpen: (isOpen: boolean) => void;
     toggleAIChat: () => void;
     openChatForChart: (chartId: string) => void;
@@ -203,6 +233,7 @@ interface VizActions {
     editChartFromDashboard: (chartId: string) => void;
     updateChartInDashboard: (chartId: string) => void;
     syncAndReturnToDashboard: () => void;
+    importDashboard: (dashboard: DashboardConfig, dataset: Dataset) => void;
 
     // Sidebar Actions
     toggleLeftSidebar: () => void;
@@ -233,6 +264,27 @@ interface VizActions {
     // Forecast Actions
     generateForecast: (periods?: number) => Promise<void>;
     clearForecast: () => void;
+
+    // Cross-Filter Actions
+    setCrossFilter: (filter: CrossFilter) => void;
+    clearCrossFilters: () => void;
+    toggleCrossFilter: () => void;
+
+    // Calculated Field Actions
+    addCalculatedField: (name: string, formula: string) => void;
+    removeCalculatedField: (fieldId: string) => void;
+
+    // Data Source Actions
+    setDataSource: (source: DataSourceInfo | null) => void;
+
+    // Drill-Down Actions
+    drillDown: (field: string, value: string | number, level: TemporalDrillLevel | string) => void;
+    drillUp: () => void;
+    drillReset: () => void;
+
+    // Refresh Actions
+    setRefreshInterval: (interval: RefreshInterval) => void;
+    refreshDashboardData: () => Promise<void>;
 }
 
 // ============================================
@@ -284,6 +336,9 @@ const initialState: VizState = {
     dataset: null,
     uploadStatus: { state: 'idle', progress: 0 },
     dataProfile: null,
+    dataSource: null,
+    isRefreshing: false,
+    lastRefreshedAt: null,
 
     // Chart/Encoding
     encodings: [],
@@ -310,6 +365,8 @@ const initialState: VizState = {
     // AI
     aiQuery: '',
     aiLoading: false,
+    aiStreamingMessageId: null,
+    aiStreamingText: '',
     lastFailedQuery: null,
     aiSuggestions: [],
     aiInsights: [],
@@ -343,6 +400,18 @@ const initialState: VizState = {
     // Forecast
     forecastData: null,
     forecastLoading: false,
+
+    // Cross-Chart Filtering
+    crossFilters: [],
+    crossFilterEnabled: true,
+
+    // Calculated Fields
+    calculatedFields: [],
+
+    // Drill-Down
+    drillPath: [],
+    drillHierarchies: [],
+    drillActiveField: null,
 };
 
 // ============================================
@@ -396,6 +465,9 @@ export const useVizStore = create<VizState & VizActions>()(
                     // Clear old dashboards — they reference fields from previous dataset
                     saveDashboardsToStorage([]);
 
+                    // Detect drill hierarchies for the new dataset
+                    const hierarchies = detectHierarchies(fields, data);
+
                     set({
                         dataset,
                         dataProfile: generateDataProfile(data, fields),
@@ -406,6 +478,11 @@ export const useVizStore = create<VizState & VizActions>()(
                         dashboardConfig: null,
                         viewMode: 'single',
                         editingChartId: null,
+                        calculatedFields: [],
+                        dataSource: null,
+                        drillPath: [],
+                        drillHierarchies: hierarchies,
+                        drillActiveField: null,
                     });
 
                     // Generate AI suggestions after loading
@@ -445,6 +522,7 @@ export const useVizStore = create<VizState & VizActions>()(
 
             loadDataFromJson: (data: DataRecord[], name: string) => {
                 const fields = inferSchema(data);
+                const hierarchies = detectHierarchies(fields, data);
 
                 const dataset: Dataset = {
                     id: uuidv4(),
@@ -460,6 +538,9 @@ export const useVizStore = create<VizState & VizActions>()(
                     uploadStatus: { state: 'complete', progress: 100 },
                     encodings: [],
                     vegaSpec: null,
+                    drillPath: [],
+                    drillHierarchies: hierarchies,
+                    drillActiveField: null,
                 });
             },
 
@@ -496,6 +577,12 @@ export const useVizStore = create<VizState & VizActions>()(
                 };
 
                 const newEncodings = [...withoutField, newPlacement];
+
+                // Clear drill state when x-axis changes (drill path becomes invalid)
+                const xChanged = channel === 'x' || encodings.find(e => e.channel === 'x')?.field.id !== newEncodings.find(e => e.channel === 'x')?.field.id;
+                if (xChanged && get().drillPath.length > 0) {
+                    set({ drillPath: [], drillActiveField: null });
+                }
 
                 set({ encodings: newEncodings });
 
@@ -589,6 +676,154 @@ export const useVizStore = create<VizState & VizActions>()(
                 });
             },
 
+            applyTemplate: (template) => {
+                const { dataset } = get();
+                if (!dataset) return;
+
+                // Dynamic import to avoid circular dependency
+                import('@/data/chartTemplates').then(({ autoMapFields }) => {
+                    const fields = dataset.fields.map(f => ({ name: f.name, type: f.type }));
+                    const mapping = autoMapFields(template, fields);
+
+                    // Build new encodings from the mapping
+                    const newEncodings: ShelfPlacement[] = [];
+                    for (const slot of template.slots) {
+                        const mapped = mapping.get(slot.channel);
+                        if (!mapped) continue;
+
+                        // Find the full FieldInfo object
+                        const fieldInfo = dataset.fields.find(f => f.name === mapped.name);
+                        if (!fieldInfo) continue;
+
+                        newEncodings.push({
+                            id: uuidv4(),
+                            field: fieldInfo,
+                            channel: slot.channel,
+                            aggregate: slot.aggregate,
+                        });
+                    }
+
+                    // Apply everything at once
+                    get().pushToHistory();
+                    set({
+                        chartConfig: {
+                            ...get().chartConfig,
+                            id: uuidv4(),
+                            mark: template.mark,
+                            title: template.name,
+                            encodings: newEncodings,
+                            fixedColor: template.fixedColor,
+                        },
+                        encodings: newEncodings,
+                    });
+
+                    get().regenerateSpec();
+                });
+            },
+
+            applyDashboardTemplate: (template) => {
+                const { dataset, dashboardConfig: existingDashboard } = get();
+                if (!dataset) return;
+
+                import('@/data/chartTemplates').then(({ autoMapFields, canApplyTemplate, getChartTemplateById }) => {
+                    const fields = dataset.fields.map(f => ({ name: f.name, type: f.type }));
+
+                    // Save existing dashboard before creating new one
+                    if (existingDashboard) {
+                        get().saveDashboard();
+                    }
+
+                    const charts: ChartConfig[] = [];
+                    const layoutItems: DashboardLayoutItem[] = [];
+
+                    for (const slot of template.chartSlots) {
+                        const chartTemplate = getChartTemplateById(slot.chartTemplateId);
+                        if (!chartTemplate) continue;
+                        if (!canApplyTemplate(chartTemplate, fields)) continue;
+
+                        const mapping = autoMapFields(chartTemplate, fields);
+                        const encodings: ShelfPlacement[] = [];
+
+                        for (const tSlot of chartTemplate.slots) {
+                            const mapped = mapping.get(tSlot.channel);
+                            if (!mapped) continue;
+
+                            const fieldInfo = dataset.fields.find(f => f.name === mapped.name);
+                            if (!fieldInfo) continue;
+
+                            encodings.push({
+                                id: uuidv4(),
+                                field: fieldInfo,
+                                channel: tSlot.channel,
+                                aggregate: tSlot.aggregate,
+                            });
+                        }
+
+                        if (encodings.length === 0) continue;
+
+                        const chartId = uuidv4();
+                        charts.push({
+                            id: chartId,
+                            title: slot.suggestedTitle,
+                            mark: chartTemplate.mark,
+                            encodings,
+                            width: 'container',
+                            height: 'container',
+                            interactive: true,
+                            fixedColor: chartTemplate.fixedColor,
+                        });
+
+                        layoutItems.push({
+                            chartId,
+                            col: slot.layout.col,
+                            row: slot.layout.row,
+                            colSpan: slot.layout.colSpan,
+                            rowSpan: slot.layout.rowSpan,
+                        });
+                    }
+
+                    if (charts.length === 0) return;
+
+                    // Re-compact layout if some charts were skipped
+                    const compactedItems: DashboardLayoutItem[] = [];
+                    let idx = 0;
+                    for (const item of layoutItems) {
+                        compactedItems.push({
+                            ...item,
+                            col: idx % template.cols,
+                            row: Math.floor(idx / template.cols),
+                            // Keep original colSpan — if it was full-width, keep it
+                            colSpan: item.colSpan > 1 ? template.cols : 1,
+                        });
+                        idx += item.colSpan > 1 ? template.cols : 1;
+                    }
+
+                    const newDashboard: DashboardConfig = {
+                        id: uuidv4(),
+                        title: template.name,
+                        charts,
+                        layout: {
+                            cols: template.cols,
+                            rows: 10,
+                            items: compactedItems,
+                        },
+                        createdAt: new Date(),
+                    };
+
+                    set({
+                        dashboardConfig: newDashboard,
+                        viewMode: 'dashboard',
+                        editingChartId: null,
+                        aiFocusedChartId: null,
+                        chartConfig: { ...initialChartConfig, id: uuidv4() },
+                        encodings: [],
+                        echartsOption: null,
+                    });
+                    get().saveDashboard();
+                    toast.success(`Created "${template.name}" with ${charts.length} charts`);
+                });
+            },
+
             // ----------------------------------------
             // UI Actions
             // ----------------------------------------
@@ -640,8 +875,8 @@ export const useVizStore = create<VizState & VizActions>()(
                 get().addChatMessage(userMessage);
 
                 try {
-                    // Use the enhanced AI service
-                    const { processAIQuery } = await import('@backend/services/groqService');
+                    // Use the streaming AI service for real-time text responses
+                    const { processAIQueryStreaming } = await import('@backend/services/groqService');
                     const { dashboardConfig, chartConfig, aiFocusedChartId } = get();
 
                     // If chat is focused on a specific chart in a dashboard, use that chart's context
@@ -659,7 +894,37 @@ export const useVizStore = create<VizState & VizActions>()(
                         }
                     }
 
-                    const result = await processAIQuery(
+                    // Create a streaming message placeholder before calling AI
+                    // This allows streaming callbacks to populate it progressively
+                    const streamMsgId = uuidv4();
+                    let isStreamingActive = false;
+
+                    const onChunk = (_chunk: string, accumulated: string) => {
+                        // On first chunk, set up the streaming message if not already done
+                        if (!isStreamingActive) {
+                            isStreamingActive = true;
+                            const streamMessage: AIMessage = {
+                                id: streamMsgId,
+                                role: 'assistant',
+                                content: '',
+                                timestamp: new Date(),
+                                resultType: 'text',
+                            };
+                            get().addChatMessage(streamMessage);
+                            set({ aiStreamingMessageId: streamMsgId, aiStreamingText: '' });
+                        }
+
+                        // Update streaming text and the message in chat history
+                        set({ aiStreamingText: accumulated });
+                        const history = get().aiChatHistory;
+                        set({
+                            aiChatHistory: history.map(m =>
+                                m.id === streamMsgId ? { ...m, content: accumulated } : m
+                            ),
+                        });
+                    };
+
+                    const result = await processAIQueryStreaming(
                         query,
                         dataProfile,
                         dataset.fields,
@@ -669,14 +934,44 @@ export const useVizStore = create<VizState & VizActions>()(
                         dashboardConfig,
                         contextMark,
                         contextTitle,
-                        aiFocusedChartId // pass focused chart id for targeted modifications
+                        aiFocusedChartId,
+                        onChunk
                     );
 
-                    // Handle based on intent
-                    if (result.intent === 'question' && result.textAnswer) {
-                        // Text answer for data questions
-                        const assistantMessage: AIMessage = {
+                    // If the response was streamed, finalize the streaming state
+                    if (result.streamed && result.textAnswer) {
+                        const finalHistory = get().aiChatHistory;
+                        set({
+                            aiChatHistory: finalHistory.map(m =>
+                                m.id === streamMsgId ? { ...m, content: result.textAnswer!, provider: result.provider } : m
+                            ),
+                            aiStreamingMessageId: null,
+                            aiStreamingText: '',
+                        });
+                    } else if (result.streamed && result.error) {
+                        // Streamed intent that errored - show error
+                        // Clean up partial streaming message if it was added
+                        if (isStreamingActive) {
+                            const h = get().aiChatHistory;
+                            set({
+                                aiChatHistory: h.filter(m => m.id !== streamMsgId),
+                                aiStreamingMessageId: null,
+                                aiStreamingText: '',
+                            });
+                        }
+                        const errorMessage: AIMessage = {
                             id: uuidv4(),
+                            role: 'assistant',
+                            content: `Error: ${result.error}`,
+                            timestamp: new Date(),
+                            resultType: 'error',
+                        };
+                        get().addChatMessage(errorMessage);
+                    } else if (!result.streamed && result.intent === 'question' && result.textAnswer) {
+                        // Fallback: non-streamed text answer (shouldn't happen, but just in case)
+                        const msgId = uuidv4();
+                        const assistantMessage: AIMessage = {
+                            id: msgId,
                             role: 'assistant',
                             content: result.textAnswer,
                             timestamp: new Date(),
@@ -719,6 +1014,7 @@ export const useVizStore = create<VizState & VizActions>()(
                                 resultType: 'chart',
                                 chartConfig: result.chartConfig,
                                 echartsOption: editingChartId === focusId ? get().echartsOption || undefined : undefined,
+                                provider: result.provider,
                             };
                             get().addChatMessage(assistantMessage);
                         } else if (viewMode === 'dashboard' && dashboardConfig) {
@@ -731,6 +1027,7 @@ export const useVizStore = create<VizState & VizActions>()(
                                 content: result.textAnswer || `Added ${result.chartConfig.mark} chart to dashboard`,
                                 timestamp: new Date(),
                                 resultType: 'chart',
+                                provider: result.provider,
                             };
                             get().addChatMessage(assistantMessage);
                         } else {
@@ -752,6 +1049,7 @@ export const useVizStore = create<VizState & VizActions>()(
                                 resultType: 'chart',
                                 chartConfig: result.chartConfig,
                                 echartsOption: generatedOption || undefined,
+                                provider: result.provider,
                             };
                             get().addChatMessage(assistantMessage);
                         }
@@ -778,6 +1076,7 @@ export const useVizStore = create<VizState & VizActions>()(
                             content: result.textAnswer || 'Created dashboard',
                             timestamp: new Date(),
                             resultType: 'dashboard',
+                            provider: result.provider,
                         };
                         get().addChatMessage(assistantMessage);
                     } else if (result.error) {
@@ -794,14 +1093,15 @@ export const useVizStore = create<VizState & VizActions>()(
                     // Handle filter result
                     if (result.filterSpec) {
                         get().applyFilter(result.filterSpec);
-                        const assistantMessage: AIMessage = {
+                        const filterText = result.textAnswer || 'Filter applied';
+                        const filterMessage: AIMessage = {
                             id: uuidv4(),
                             role: 'assistant',
-                            content: result.textAnswer || 'Filter applied',
+                            content: filterText,
                             timestamp: new Date(),
                             resultType: 'text',
                         };
-                        get().addChatMessage(assistantMessage);
+                        get().addChatMessage(filterMessage);
                     }
 
                     // Handle comparison result
@@ -866,7 +1166,7 @@ export const useVizStore = create<VizState & VizActions>()(
                         description: 'Click "Retry" in the chat to try again.',
                     });
                 } finally {
-                    set({ aiLoading: false });
+                    set({ aiLoading: false, aiStreamingMessageId: null, aiStreamingText: '' });
                 }
             },
 
@@ -925,6 +1225,29 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             clearChatHistory: () => set({ aiChatHistory: [] }),
+
+            setMessageFeedback: (messageId: string, feedback: 'positive' | 'negative') => {
+                const { aiChatHistory } = get();
+                const updated = aiChatHistory.map(msg =>
+                    msg.id === messageId ? { ...msg, feedback } : msg
+                );
+                set({ aiChatHistory: updated });
+
+                // Persist feedback to localStorage
+                try {
+                    const key = 'openviz-ai-feedback';
+                    const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                    existing.push({
+                        messageId,
+                        feedback,
+                        timestamp: new Date().toISOString(),
+                        content: aiChatHistory.find(m => m.id === messageId)?.content?.slice(0, 200),
+                    });
+                    localStorage.setItem(key, JSON.stringify(existing));
+                } catch (e) {
+                    console.warn('Failed to save AI feedback:', e);
+                }
+            },
 
             setAIChatOpen: (isOpen) => set({ aiChatOpen: isOpen }),
 
@@ -1108,6 +1431,7 @@ export const useVizStore = create<VizState & VizActions>()(
                     encodings: [],
                     echartsOption: null,
                     dashboardSummary: null,
+                    crossFilters: [],
                 });
             },
 
@@ -1169,6 +1493,7 @@ export const useVizStore = create<VizState & VizActions>()(
                     encodings: [],
                     echartsOption: null,
                     dashboardSummary: null,
+                    crossFilters: [],
                 });
             },
 
@@ -1213,6 +1538,37 @@ export const useVizStore = create<VizState & VizActions>()(
                     encodings: [],
                     echartsOption: null,
                 });
+            },
+
+            importDashboard: (dashboard: DashboardConfig, dataset: Dataset) => {
+                // Save current dashboard if any
+                const { dashboardConfig: currentDashboard } = get();
+                if (currentDashboard) {
+                    get().saveDashboard();
+                }
+
+                // Set the imported dataset and dashboard
+                set({
+                    dataset,
+                    dataProfile: null,
+                    dashboardConfig: dashboard,
+                    viewMode: 'dashboard',
+                    editingChartId: null,
+                    chartConfig: { ...initialChartConfig, id: uuidv4() },
+                    encodings: [],
+                    echartsOption: null,
+                });
+
+                // Save the imported dashboard
+                get().saveDashboard();
+
+                // Generate data profile in background
+                try {
+                    const profile = generateDataProfile(dataset.data, dataset.fields);
+                    set({ dataProfile: profile });
+                } catch (e) {
+                    console.warn('Failed to generate data profile for imported dashboard:', e);
+                }
             },
 
             deleteSavedDashboard: (id: string) => {
@@ -1279,11 +1635,14 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             removeChartFromDashboard: (chartId: string) => {
-                const { dashboardConfig } = get();
+                const { dashboardConfig, crossFilters } = get();
                 if (!dashboardConfig) return;
 
                 const updatedCharts = dashboardConfig.charts.filter(c => c.id !== chartId);
                 const updatedItems = dashboardConfig.layout.items.filter(i => i.chartId !== chartId);
+
+                // Clear any cross-filters from the removed chart
+                const updatedCrossFilters = crossFilters.filter(f => f.sourceChartId !== chartId);
 
                 set({
                     dashboardConfig: {
@@ -1294,6 +1653,7 @@ export const useVizStore = create<VizState & VizActions>()(
                             items: updatedItems,
                         },
                     },
+                    crossFilters: updatedCrossFilters,
                 });
                 get().saveDashboard();
             },
@@ -1571,6 +1931,310 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             // ----------------------------------------
+            // Cross-Filter Actions
+            // ----------------------------------------
+
+            setCrossFilter: (filter: CrossFilter) => {
+                const { crossFilters } = get();
+
+                // Toggle off if clicking the same value from the same chart and field
+                const existing = crossFilters.find(
+                    f => f.sourceChartId === filter.sourceChartId && f.field === filter.field && f.value === filter.value
+                );
+
+                if (existing) {
+                    // Remove this filter (toggle off)
+                    set({ crossFilters: crossFilters.filter(f => f !== existing) });
+                } else {
+                    // Replace any filter from the same source chart, then add new one
+                    const filtered = crossFilters.filter(f => f.sourceChartId !== filter.sourceChartId);
+                    set({ crossFilters: [...filtered, filter] });
+                }
+            },
+
+            clearCrossFilters: () => {
+                set({ crossFilters: [] });
+            },
+
+            toggleCrossFilter: () => {
+                const { crossFilterEnabled } = get();
+                set({ crossFilterEnabled: !crossFilterEnabled });
+                if (crossFilterEnabled) {
+                    // If disabling, clear active filters
+                    set({ crossFilters: [] });
+                }
+            },
+
+            // ----------------------------------------
+            // Calculated Field Actions
+            // ----------------------------------------
+
+            addCalculatedField: (name: string, formula: string) => {
+                const { dataset, calculatedFields } = get();
+                if (!dataset) return;
+
+                // Evaluate the formula to get values and result type
+                import('@backend/services/formulaParser').then(({ evaluateFormula, parseFormula }) => {
+                    const fieldNames = dataset.fields.map(f => f.name);
+                    const { values, resultType, error } = evaluateFormula(formula, dataset.data, fieldNames);
+
+                    if (error) {
+                        toast.error('Formula error', { description: error });
+                        return;
+                    }
+
+                    const { referencedFields } = parseFormula(formula, fieldNames);
+
+                    const fieldId = uuidv4();
+
+                    // Create the CalculatedField record
+                    const calcField: CalculatedField = {
+                        id: fieldId,
+                        name,
+                        formula,
+                        resultType,
+                        referencedFields,
+                        createdBy: 'user',
+                    };
+
+                    // Add the computed values to dataset rows
+                    const updatedData = dataset.data.map((row, i) => ({
+                        ...row,
+                        [name]: values[i],
+                    }));
+
+                    // Compute basic stats for the new field
+                    const numericValues = values.filter(v => typeof v === 'number' && !isNaN(v as number)) as number[];
+                    const stats = resultType === 'quantitative' && numericValues.length > 0
+                        ? {
+                            count: values.length,
+                            nullCount: values.filter(v => v === null || v === undefined).length,
+                            min: Math.min(...numericValues),
+                            max: Math.max(...numericValues),
+                            mean: numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
+                            uniqueCount: new Set(numericValues).size,
+                        }
+                        : {
+                            count: values.length,
+                            nullCount: values.filter(v => v === null || v === undefined).length,
+                            uniqueCount: new Set(values.map(String)).size,
+                        };
+
+                    // Create FieldInfo for the calculated field
+                    const newField: FieldInfo = {
+                        id: fieldId,
+                        name,
+                        type: resultType,
+                        stats,
+                        sparklineData: [],
+                    };
+
+                    // Update dataset with new field and data
+                    const updatedDataset: Dataset = {
+                        ...dataset,
+                        fields: [...dataset.fields, newField],
+                        data: updatedData,
+                    };
+
+                    set({
+                        dataset: updatedDataset,
+                        calculatedFields: [...calculatedFields, calcField],
+                    });
+
+                    toast.success(`Created calculated field "${name}"`);
+                });
+            },
+
+            removeCalculatedField: (fieldId: string) => {
+                const { dataset, calculatedFields, encodings } = get();
+                if (!dataset) return;
+
+                const calcField = calculatedFields.find(f => f.id === fieldId);
+                if (!calcField) return;
+
+                // Remove field from dataset
+                const updatedFields = dataset.fields.filter(f => f.id !== fieldId);
+                const updatedData = dataset.data.map(row => {
+                    const newRow = { ...row };
+                    delete newRow[calcField.name];
+                    return newRow;
+                });
+
+                // Remove from encodings if used
+                const updatedEncodings = encodings.filter(e => e.field.id !== fieldId);
+
+                set({
+                    dataset: { ...dataset, fields: updatedFields, data: updatedData },
+                    calculatedFields: calculatedFields.filter(f => f.id !== fieldId),
+                    encodings: updatedEncodings,
+                });
+
+                if (updatedEncodings.length !== encodings.length) {
+                    get().regenerateSpec();
+                }
+
+                toast.success(`Removed calculated field "${calcField.name}"`);
+            },
+
+            // ----------------------------------------
+            // Data Source Actions
+            // ----------------------------------------
+
+            setDataSource: (source: DataSourceInfo | null) => {
+                set({ dataSource: source });
+            },
+
+            // ----------------------------------------
+            // Refresh Actions
+            // ----------------------------------------
+
+            setRefreshInterval: (interval: RefreshInterval) => {
+                const { dashboardConfig } = get();
+                if (!dashboardConfig) return;
+
+                set({
+                    dashboardConfig: { ...dashboardConfig, refreshInterval: interval },
+                });
+
+                // Auto-save dashboard with new interval
+                get().saveDashboard();
+            },
+
+            refreshDashboardData: async () => {
+                const { dataSource, isRefreshing } = get();
+                if (isRefreshing || !dataSource) return;
+
+                set({ isRefreshing: true });
+
+                try {
+                    if (dataSource.type === 'url' && dataSource.url) {
+                        const { fetchDataFromURL } = await import('@/services/urlDataService');
+                        const result = await fetchDataFromURL({
+                            url: dataSource.url,
+                            format: 'auto',
+                        });
+
+                        // Convert to CSV and reload via existing pipeline
+                        const Papa = await import('papaparse');
+                        const csvContent = Papa.default.unparse(result.data);
+                        const blob = new Blob([csvContent], { type: 'text/csv' });
+                        const file = new File([blob], `${result.name}.csv`, { type: 'text/csv' });
+
+                        // Save dashboard config before reload (loadDataFromFile clears it)
+                        const dashboardConfig = get().dashboardConfig;
+
+                        // Re-infer schema and update dataset without clearing dashboard
+                        const fields = inferSchema(result.data);
+                        const dataset: Dataset = {
+                            id: uuidv4(),
+                            name: result.name,
+                            fields,
+                            rowCount: result.data.length,
+                            data: result.data,
+                            uploadedAt: new Date(),
+                        };
+
+                        set({
+                            dataset,
+                            dataProfile: generateDataProfile(result.data, fields),
+                            lastRefreshedAt: new Date(),
+                            dataSource: { ...dataSource, lastFetchedAt: new Date() },
+                        });
+
+                        toast.success('Data refreshed', {
+                            description: `${result.data.length.toLocaleString()} rows updated`,
+                        });
+                    } else if (dataSource.type === 'google-sheets' && dataSource.spreadsheetId) {
+                        const { importFromGoogleSheets } = await import('@/services/googleSheetsService');
+                        const result = await importFromGoogleSheets(
+                            dataSource.spreadsheetId,
+                            dataSource.sheetName,
+                        );
+
+                        const fields = inferSchema(result.data);
+                        const dataset: Dataset = {
+                            id: uuidv4(),
+                            name: `${result.spreadsheetTitle} - ${result.sheetName}`,
+                            fields,
+                            rowCount: result.data.length,
+                            data: result.data,
+                            uploadedAt: new Date(),
+                        };
+
+                        set({
+                            dataset,
+                            dataProfile: generateDataProfile(result.data, fields),
+                            lastRefreshedAt: new Date(),
+                            dataSource: { ...dataSource, lastFetchedAt: new Date() },
+                        });
+
+                        toast.success('Google Sheets data refreshed', {
+                            description: `${result.data.length.toLocaleString()} rows updated`,
+                        });
+                    } else {
+                        toast.info('Manual refresh not available', {
+                            description: 'Auto-refresh only works with URL and Google Sheets data sources',
+                        });
+                    }
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : 'Refresh failed';
+                    console.error('Dashboard refresh failed:', error);
+                    toast.error('Refresh failed', { description: msg });
+                } finally {
+                    set({ isRefreshing: false });
+                }
+            },
+
+            // ----------------------------------------
+            // Drill-Down Actions
+            // ----------------------------------------
+
+            drillDown: (field: string, value: string | number, level: TemporalDrillLevel | string) => {
+                const { drillPath, drillHierarchies } = get();
+                const hierarchy = drillHierarchies.find(h => h.sourceField === field);
+                if (!hierarchy) return;
+
+                // Check we can drill deeper
+                const lastLevel = drillPath.length > 0 ? drillPath[drillPath.length - 1].level : null;
+                const currentIdx = lastLevel ? hierarchy.availableLevels.indexOf(lastLevel) : -1;
+                const nextIdx = currentIdx + 1;
+                if (nextIdx >= hierarchy.availableLevels.length - 1) return; // already at deepest display level
+
+                const newStep: DrillLevel = {
+                    field,
+                    value,
+                    level: level as TemporalDrillLevel,
+                    label: String(value),
+                };
+
+                set({
+                    drillPath: [...drillPath, newStep],
+                    drillActiveField: field,
+                });
+                get().regenerateSpec();
+            },
+
+            drillUp: () => {
+                const { drillPath } = get();
+                if (drillPath.length === 0) return;
+
+                const newPath = drillPath.slice(0, -1);
+                set({
+                    drillPath: newPath,
+                    drillActiveField: newPath.length > 0 ? newPath[0].field : null,
+                });
+                get().regenerateSpec();
+            },
+
+            drillReset: () => {
+                set({
+                    drillPath: [],
+                    drillActiveField: null,
+                });
+                get().regenerateSpec();
+            },
+
+            // ----------------------------------------
             // Spec Actions
             // ----------------------------------------
 
@@ -1580,22 +2244,52 @@ export const useVizStore = create<VizState & VizActions>()(
             },
 
             regenerateSpec: () => {
-                const { dataset, chartConfig, encodings, showAnnotations, filteredData, forecastData, comparisonResult } = get();
+                const { dataset, chartConfig, encodings, showAnnotations, filteredData, forecastData, comparisonResult, drillPath, drillHierarchies, drillActiveField } = get();
 
                 if (!dataset || encodings.length === 0) {
                     set({ echartsOption: null });
                     return;
                 }
 
+                // Use filtered data if active, otherwise full dataset
+                let dataToUse = filteredData ?? dataset.data;
+                let effectiveEncodings = encodings;
+
+                // Apply drill-down data transformation
+                if (drillPath.length > 0 && drillActiveField) {
+                    const hierarchy = drillHierarchies.find(h => h.sourceField === drillActiveField);
+                    if (hierarchy && hierarchy.type === 'temporal') {
+                        const currentLevel = getCurrentDrillLevel(drillPath, hierarchy.availableLevels);
+                        const drillResult = getDrillData(dataToUse, drillActiveField, drillPath, currentLevel);
+                        dataToUse = drillResult.data;
+
+                        // Replace the temporal x-axis encoding with the drill field
+                        const xEncoding = encodings.find(e => e.channel === 'x' && e.field.name === drillActiveField);
+                        if (xEncoding) {
+                            effectiveEncodings = encodings.map(e => {
+                                if (e.channel === 'x' && e.field.name === drillActiveField) {
+                                    return {
+                                        ...e,
+                                        field: {
+                                            ...e.field,
+                                            name: drillResult.drillField,
+                                            type: 'nominal' as const, // Drill categories are nominal
+                                        },
+                                        timeUnit: undefined, // Don't apply time unit to drill field
+                                    };
+                                }
+                                return e;
+                            });
+                        }
+                    }
+                }
+
                 const configWithEncodings: ChartConfig = {
                     ...chartConfig,
-                    encodings,
+                    encodings: effectiveEncodings,
                     // Remove annotations if toggle is off
                     annotations: showAnnotations ? chartConfig.annotations : undefined,
                 };
-
-                // Use filtered data if active, otherwise full dataset
-                const dataToUse = filteredData ?? dataset.data;
 
                 let option = buildEChartsOption(configWithEncodings, dataToUse);
 
@@ -1752,6 +2446,8 @@ export const selectCanRedo = (state: VizState) => state.history.future.length > 
 export const selectAILoading = (state: VizState) => state.aiLoading;
 export const selectAISuggestions = (state: VizState) => state.aiSuggestions;
 export const selectAIChatHistory = (state: VizState) => state.aiChatHistory ?? EMPTY_MESSAGES;
+export const selectAIStreamingMessageId = (state: VizState) => state.aiStreamingMessageId;
+export const selectAIStreamingText = (state: VizState) => state.aiStreamingText;
 export const selectAIInsights = (state: VizState) => state.aiInsights;
 
 // Summary Selectors
@@ -1779,6 +2475,23 @@ export const selectComparisonResult = (state: VizState) => state.comparisonResul
 // Forecast Selectors
 export const selectForecastData = (state: VizState) => state.forecastData;
 export const selectForecastLoading = (state: VizState) => state.forecastLoading;
+
+// Cross-Filter Selectors
+export const selectCrossFilters = (state: VizState) => state.crossFilters;
+export const selectCrossFilterEnabled = (state: VizState) => state.crossFilterEnabled;
+
+// Calculated Field Selectors
+export const selectCalculatedFields = (state: VizState) => state.calculatedFields;
+
+// Data Source Selectors
+export const selectDataSource = (state: VizState) => state.dataSource;
+export const selectIsRefreshing = (state: VizState) => state.isRefreshing;
+export const selectLastRefreshedAt = (state: VizState) => state.lastRefreshedAt;
+
+// Drill-Down Selectors
+export const selectDrillPath = (state: VizState) => state.drillPath;
+export const selectDrillHierarchies = (state: VizState) => state.drillHierarchies;
+export const selectDrillActiveField = (state: VizState) => state.drillActiveField;
 
 // UI Selectors
 export const selectLeftSidebarOpen = (state: VizState) => state.leftSidebarOpen;

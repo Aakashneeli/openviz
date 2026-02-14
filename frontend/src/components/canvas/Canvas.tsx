@@ -3,17 +3,19 @@
 // ============================================
 
 import { useState, useRef } from 'react';
-import { BarChart3, Code, Download, Activity, LayoutGrid, Plus, Trash2, Pencil, Check, Sparkles, Loader2, FileText, Filter, GitCompare, TrendingUp, X, ChevronRight, ArrowLeft } from 'lucide-react';
+import { BarChart3, Code, Download, Activity, LayoutGrid, LayoutTemplate, Plus, Trash2, Pencil, Check, Sparkles, Loader2, FileText, Filter, GitCompare, TrendingUp, X, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { VizPreview } from './VizPreview';
 import { CodeEditor } from './CodeEditor';
 import { DashboardGrid } from './DashboardGrid';
 import { RecommendationPanel } from '@/components/recommendations/RecommendationPanel';
+import { TemplateGallery } from './TemplateGallery';
 import { ReportGenerator } from '@/components/report/ReportGenerator';
 import { useVizStore, selectEChartsOption, selectViewMode, selectDashboardConfig, selectActiveFilters, selectComparisonResult, selectForecastData } from '@/store/useVizStore';
 import { Input } from '@/components/ui/input';
 import { exportChartToPDF, exportToPNG, exportToSVG } from '@/services/exportService';
+import { exportChartToPPTX } from '@/services/pptxExportService';
 import { toast } from '@/lib/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -46,6 +48,7 @@ export function Canvas() {
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState(chartConfig.title || 'Untitled Chart');
     const [isExporting, setIsExporting] = useState(false);
+    const [showTemplates, setShowTemplates] = useState(false);
 
     const chartRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +112,26 @@ export function Canvas() {
         } catch (error) {
             console.error('SVG export failed:', error);
             toast.error('Failed to export SVG', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportPPTX = async () => {
+        if (!chartRef.current || !echartsOption) return;
+
+        setIsExporting(true);
+        try {
+            await exportChartToPPTX(chartRef.current, {
+                filename: `${chartConfig.title || 'chart'}.pptx`,
+                title: chartConfig.title || 'Chart',
+            });
+            toast.success('PowerPoint exported successfully');
+        } catch (error) {
+            console.error('PPTX export failed:', error);
+            toast.error('Failed to export PowerPoint', {
                 description: error instanceof Error ? error.message : 'Unknown error',
             });
         } finally {
@@ -190,6 +213,26 @@ export function Canvas() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Templates button */}
+                    {dataset && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs bg-white/5 border-white/10 hover:bg-purple-500/20 hover:border-purple-500/30 text-slate-300"
+                                    onClick={() => setShowTemplates(true)}
+                                >
+                                    <LayoutTemplate className="h-3 w-3 mr-1.5" />
+                                    Templates
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p className="text-xs">Browse pre-built chart templates</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+
                     {/* Dashboard actions - always available */}
                     {dashboardConfig ? (
                         <>
@@ -285,7 +328,7 @@ export function Canvas() {
                                         </DropdownMenuTrigger>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p className="text-xs">Export chart (PNG, SVG, PDF)</p>
+                                        <p className="text-xs">Export chart (PNG, SVG, PDF, PPTX)</p>
                                     </TooltipContent>
                                 </Tooltip>
                                 <DropdownMenuContent align="end" className="w-48">
@@ -311,6 +354,9 @@ export function Canvas() {
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={handleExportPDF} className="text-xs">
                                         PDF Document
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleExportPPTX} className="text-xs">
+                                        PowerPoint (PPTX)
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
@@ -407,6 +453,9 @@ export function Canvas() {
                     </div>
                 </TabsContent>
             </Tabs>
+
+            {/* Template Gallery Dialog */}
+            <TemplateGallery open={showTemplates} onOpenChange={setShowTemplates} />
         </div>
     );
 }

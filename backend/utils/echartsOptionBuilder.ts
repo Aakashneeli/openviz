@@ -961,7 +961,7 @@ function processDataWithAggregation(data: DataRecord[], encodings: ShelfPlacemen
         groups.get(key)!.push(row);
     }
 
-    return Array.from(groups.entries()).map(([key, rows]) => {
+    const aggregated = Array.from(groups.entries()).map(([key, rows]) => {
         const result: DataRecord = {};
         const keyParts = key.split('|||');
         groupByFields.forEach((field, i) => { result[field] = keyParts[i]; });
@@ -976,17 +976,49 @@ function processDataWithAggregation(data: DataRecord[], encodings: ShelfPlacemen
                 case 'count': result[fieldName] = rows.length; break;
                 case 'min': result[fieldName] = Math.min(...values); break;
                 case 'max': result[fieldName] = Math.max(...values); break;
-                case 'median':
+                case 'median': {
                     const sorted = [...values].sort((a, b) => a - b);
                     const mid = Math.floor(sorted.length / 2);
                     result[fieldName] = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
                     break;
+                }
                 case 'distinct': result[fieldName] = new Set(rows.map(r => r[fieldName])).size; break;
+                case 'variance': {
+                    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+                    result[fieldName] = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / values.length;
+                    break;
+                }
+                case 'stddev': {
+                    const m = values.reduce((a, b) => a + b, 0) / values.length;
+                    result[fieldName] = Math.sqrt(values.reduce((acc, v) => acc + (v - m) ** 2, 0) / values.length);
+                    break;
+                }
+                case 'percent_of_total': {
+                    const total = data.reduce((acc, r) => acc + (Number(r[fieldName]) || 0), 0);
+                    const groupSum = values.reduce((a, b) => a + b, 0);
+                    result[fieldName] = total > 0 ? (groupSum / total) * 100 : 0;
+                    break;
+                }
+                case 'cumulative_sum': result[fieldName] = values.reduce((a, b) => a + b, 0); break;
                 default: result[fieldName] = values[0];
             }
         }
         return result;
     });
+
+    // Post-processing for cumulative_sum: convert to running totals
+    const cumulativeAggs = aggregations.filter(e => e.aggregate === 'cumulative_sum');
+    if (cumulativeAggs.length > 0) {
+        for (const agg of cumulativeAggs) {
+            let runningTotal = 0;
+            for (const row of aggregated) {
+                runningTotal += Number(row[agg.field.name]) || 0;
+                row[agg.field.name] = runningTotal;
+            }
+        }
+    }
+
+    return aggregated;
 }
 
 function formatAxisTitle(placement: ShelfPlacement): string {

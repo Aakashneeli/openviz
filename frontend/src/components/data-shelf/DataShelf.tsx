@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef } from 'react';
-import { Search, Database, Upload, FileUp, ChevronDown, BarChart3, TrendingUp, MousePointer, Loader2 } from 'lucide-react';
+import { Search, Database, Upload, FileUp, ChevronDown, BarChart3, TrendingUp, MousePointer, Loader2, FolderOpen, FunctionSquare, X, Globe, FileSpreadsheet } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,17 +12,29 @@ import {
     DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { DraggableField } from './DraggableField';
-import { useVizStore, selectFields, selectDataset } from '@/store/useVizStore';
+import { CalculatedFieldDialog } from './CalculatedFieldDialog';
+import { URLImportDialog } from './URLImportDialog';
+import { GoogleSheetsConnector } from './GoogleSheetsConnector';
+import { useVizStore, selectFields, selectDataset, selectCalculatedFields } from '@/store/useVizStore';
 import { sampleDatasets, loadSampleDataset } from '@/data/sampleDatasets';
+import { importDashboardFromJSON } from '@/services/exportService';
+import { toast } from '@/lib/toast';
 import Papa from 'papaparse';
 
 export function DataShelf() {
     const [searchQuery, setSearchQuery] = useState('');
     const [loadingSample, setLoadingSample] = useState<string | null>(null);
+    const [showCalcFieldDialog, setShowCalcFieldDialog] = useState(false);
+    const [showURLImport, setShowURLImport] = useState(false);
+    const [showGoogleSheets, setShowGoogleSheets] = useState(false);
     const dataset = useVizStore(selectDataset);
     const fields = useVizStore(selectFields);
+    const calculatedFields = useVizStore(selectCalculatedFields);
     const loadDataFromFile = useVizStore(state => state.loadDataFromFile);
+    const importDashboard = useVizStore(state => state.importDashboard);
+    const removeCalculatedField = useVizStore(state => state.removeCalculatedField);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const dashboardImportRef = useRef<HTMLInputElement>(null);
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -34,6 +46,24 @@ export function DataShelf() {
     };
 
     const triggerUpload = () => fileInputRef.current?.click();
+
+    const handleDashboardImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            const { dashboard, dataset: importedDataset } = await importDashboardFromJSON(file);
+            importDashboard(dashboard, importedDataset);
+            toast.success('Dashboard imported successfully', {
+                description: `${dashboard.charts.length} charts loaded`,
+            });
+        } catch (error) {
+            console.error('Dashboard import failed:', error);
+            toast.error('Failed to import dashboard', {
+                description: error instanceof Error ? error.message : 'Invalid dashboard file',
+            });
+        }
+        if (event.target) event.target.value = '';
+    };
 
     const handleLoadSample = async (sampleId: string) => {
         const sample = sampleDatasets.find(s => s.id === sampleId);
@@ -158,10 +188,59 @@ export function DataShelf() {
                     </DropdownMenuContent>
                 </DropdownMenu>
 
+                {/* Import from URL */}
+                <Button
+                    variant="outline"
+                    onClick={() => setShowURLImport(true)}
+                    className="border-dashed border-cyan-500/30 text-cyan-400 hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-cyan-500/10 mb-3"
+                >
+                    <Globe className="w-4 h-4 mr-2" />
+                    Import from URL
+                </Button>
+
+                {/* Google Sheets Connector */}
+                <Button
+                    variant="outline"
+                    onClick={() => setShowGoogleSheets(true)}
+                    className="border-dashed border-green-500/30 text-green-400 hover:text-green-300 hover:border-green-500/50 hover:bg-green-500/10 mb-3"
+                >
+                    <FileSpreadsheet className="w-4 h-4 mr-2" />
+                    Google Sheets
+                </Button>
+
+                <input
+                    type="file"
+                    ref={dashboardImportRef}
+                    onChange={handleDashboardImport}
+                    accept=".json"
+                    className="hidden"
+                />
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => dashboardImportRef.current?.click()}
+                    className="text-xs text-muted-foreground hover:text-foreground mb-4"
+                >
+                    <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+                    Import Dashboard
+                </Button>
+
                 <div className="text-[10px] text-muted-foreground/60 space-y-1">
                     <p>Supported formats:</p>
-                    <p className="font-mono text-muted-foreground/40">CSV, TSV, JSON, Excel</p>
+                    <p className="font-mono text-muted-foreground/40">CSV, TSV, JSON, Excel, URL, Google Sheets</p>
                 </div>
+
+                {/* URL Import Dialog */}
+                <URLImportDialog
+                    open={showURLImport}
+                    onClose={() => setShowURLImport(false)}
+                />
+
+                {/* Google Sheets Connector */}
+                <GoogleSheetsConnector
+                    open={showGoogleSheets}
+                    onClose={() => setShowGoogleSheets(false)}
+                />
             </div>
         );
     }
@@ -197,6 +276,24 @@ export function DataShelf() {
                 >
                     <FileUp className="h-3.5 w-3.5" />
                 </Button>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowURLImport(true)}
+                    className="h-7 w-7 text-muted-foreground hover:text-cyan-400"
+                    title="Import from URL"
+                >
+                    <Globe className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowGoogleSheets(true)}
+                    className="h-7 w-7 text-muted-foreground hover:text-green-400"
+                    title="Google Sheets"
+                >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                </Button>
             </div>
 
             <ScrollArea className="flex-1">
@@ -208,19 +305,66 @@ export function DataShelf() {
                         <div className="ml-auto w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
                     </div>
 
+                    {/* Regular Fields */}
                     <div className="flex flex-wrap gap-2">
                         {filteredFields.length > 0 ? (
-                            filteredFields.map(field => (
-                                <DraggableField key={field.id} field={field} />
-                            ))
+                            filteredFields.map(field => {
+                                const isCalculated = calculatedFields.some(cf => cf.id === field.id);
+                                return (
+                                    <div key={field.id} className="relative group/calc">
+                                        <DraggableField field={field} />
+                                        {isCalculated && (
+                                            <>
+                                                <span className="absolute -top-1 -left-1 w-3.5 h-3.5 bg-violet-500 rounded-full flex items-center justify-center border border-slate-900" title="Calculated field">
+                                                    <FunctionSquare className="w-2 h-2 text-white" />
+                                                </span>
+                                                <button
+                                                    onClick={() => removeCalculatedField(field.id)}
+                                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full items-center justify-center border border-slate-900 hidden group-hover/calc:flex"
+                                                    title="Remove calculated field"
+                                                >
+                                                    <X className="w-2 h-2 text-white" />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })
                         ) : (
                             <div className="w-full py-8 text-muted-foreground/30 text-xs italic text-center border border-dashed border-white/5 rounded-lg">
                                 No matching fields
                             </div>
                         )}
                     </div>
+
+                    {/* New Calculated Field Button */}
+                    <button
+                        onClick={() => setShowCalcFieldDialog(true)}
+                        className="mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-violet-500/30 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/50 transition-colors text-xs"
+                    >
+                        <FunctionSquare className="w-3.5 h-3.5" />
+                        New Calculated Field
+                    </button>
                 </div>
             </ScrollArea>
+
+            {/* Calculated Field Dialog */}
+            <CalculatedFieldDialog
+                open={showCalcFieldDialog}
+                onClose={() => setShowCalcFieldDialog(false)}
+            />
+
+            {/* URL Import Dialog */}
+            <URLImportDialog
+                open={showURLImport}
+                onClose={() => setShowURLImport(false)}
+            />
+
+            {/* Google Sheets Connector */}
+            <GoogleSheetsConnector
+                open={showGoogleSheets}
+                onClose={() => setShowGoogleSheets(false)}
+            />
         </div>
     );
 }

@@ -4,7 +4,6 @@
 // Contextual Memory for OpenViz
 // ============================================
 
-import Groq from 'groq-sdk';
 import type {
     FieldInfo,
     ChartConfig,
@@ -32,64 +31,23 @@ import { generateAnnotations } from './annotationService';
 // Configuration
 // ============================================
 
+import { getProviderManager, isAnyProviderAvailable, getLastProviderName, getAvailableProviderNames } from './aiProvider';
+import type { ChatMessage, ChatCompletionRequest, ChatCompletionResponse } from './aiProvider';
+
 // AI Proxy URL - In production, this should point to your Cloudflare Worker
-// For local development without proxy, set VITE_GROQ_API_KEY to use direct calls
 const AI_PROXY_URL = import.meta.env.VITE_AI_PROXY_URL;
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'meta-llama/llama-4-maverick-17b-128e-instruct';
 
 // Retry configuration
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 
-// Initialize Groq client (only used as fallback for local development)
-let groqClient: Groq | null = null;
-
-function getGroqClient(): Groq {
-    if (!groqClient) {
-        if (!GROQ_API_KEY) {
-            throw new Error('GROQ_API_KEY is not configured. Please add VITE_GROQ_API_KEY to your .env file or set VITE_AI_PROXY_URL for production.');
-        }
-        groqClient = new Groq({
-            apiKey: GROQ_API_KEY,
-            dangerouslyAllowBrowser: true,
-        });
-    }
-    return groqClient;
-}
+// Re-export provider utilities for external use
+export { getLastProviderName, getAvailableProviderNames };
 
 // ============================================
-// AI Call with Retry Logic
+// AI Call with Retry Logic & Provider Fallback
 // ============================================
-
-interface ChatMessage {
-    role: 'system' | 'user' | 'assistant';
-    content: string;
-}
-
-interface ChatCompletionRequest {
-    model: string;
-    messages: ChatMessage[];
-    temperature?: number;
-    max_tokens?: number;
-    response_format?: { type: 'json_object' | 'text' };
-    stream?: boolean;
-}
-
-interface ChatCompletionResponse {
-    choices: Array<{
-        message: {
-            content: string;
-            role: string;
-        };
-        finish_reason: string;
-    }>;
-    usage?: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-    };
-}
 
 /**
  * Sleep for a specified duration (for retry delays)
@@ -99,34 +57,35 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Call AI service with automatic retry on failure
- * Uses proxy in production, direct Groq client in development
+ * Call AI service with automatic retry and provider fallback
+ * Priority: Proxy (if configured) > Provider Manager (multi-provider with fallback)
  */
 async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            // Use proxy if configured, otherwise fall back to direct Groq client
             if (AI_PROXY_URL) {
+                // Use proxy in production (handles its own provider logic)
                 return await callAIProxy(request);
             } else {
-                return await callAIDirect(request);
+                // Use provider manager with automatic fallback across providers
+                const manager = getProviderManager();
+                return await manager.chat(request);
             }
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
 
-            // Don't retry on client errors (4xx)
-            if (lastError.message.includes('400') ||
+            // Don't retry on client errors (4xx) - except 429 which is rate limit
+            if ((lastError.message.includes('400') ||
                 lastError.message.includes('401') ||
-                lastError.message.includes('403')) {
+                lastError.message.includes('403')) &&
+                !lastError.message.includes('429')) {
                 throw lastError;
             }
 
             // Calculate exponential backoff delay
             const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-
-            // Check if we got a retry-after header hint
             const retryAfter = (error as { retryAfter?: number })?.retryAfter;
             const actualDelay = retryAfter ? retryAfter * 1000 : delay;
 
@@ -150,7 +109,7 @@ async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompleti
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, model: AI_MODEL }),
     });
 
     if (!response.ok) {
@@ -161,36 +120,128 @@ async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompleti
         throw error;
     }
 
-    return await response.json();
+    const data = await response.json();
+    return { ...data, provider: 'proxy' };
+}
+
+// ============================================
+// Streaming AI Calls
+// ============================================
+
+/**
+ * Call AI with streaming via proxy (SSE)
+ * Returns an async generator that yields text chunks
+ */
+async function* callAIStreamingProxy(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
+    const response = await fetch(AI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...request, stream: true }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`AI proxy streaming error: HTTP ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body for streaming');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') return;
+
+            try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) yield content;
+            } catch {
+                // Skip unparseable chunks
+            }
+        }
+    }
 }
 
 /**
- * Call AI directly via Groq SDK (development fallback)
+ * Get a streaming generator - uses proxy or provider manager with fallback
  */
-async function callAIDirect(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const groq = getGroqClient();
-    const response = await groq.chat.completions.create({
-        model: request.model,
-        messages: request.messages,
-        temperature: request.temperature,
-        max_tokens: request.max_tokens,
-        response_format: request.response_format,
-    });
+function getStreamingGenerator(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
+    if (AI_PROXY_URL) {
+        return callAIStreamingProxy(request);
+    }
+    // Use provider manager with automatic fallback
+    const manager = getProviderManager();
+    return manager.streamChat(request);
+}
 
-    return {
-        choices: response.choices.map(choice => ({
-            message: {
-                content: choice.message.content || '',
-                role: choice.message.role,
-            },
-            finish_reason: choice.finish_reason || 'stop',
-        })),
-        usage: response.usage ? {
-            prompt_tokens: response.usage.prompt_tokens,
-            completion_tokens: response.usage.completion_tokens,
-            total_tokens: response.usage.total_tokens,
-        } : undefined,
+/**
+ * Stream a text response from the AI given a prompt
+ * onChunk is called with each text fragment as it arrives
+ * Returns the complete text when done
+ */
+export async function streamAITextResponse(
+    prompt: string,
+    onChunk: (chunk: string, accumulated: string) => void,
+    options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string> {
+    const request: ChatCompletionRequest = {
+        messages: [{ role: 'user', content: prompt }],
+        temperature: options.temperature ?? 0.5,
+        max_tokens: options.maxTokens ?? 1024,
+        stream: true,
     };
+
+    let accumulated = '';
+    const generator = getStreamingGenerator(request);
+
+    for await (const chunk of generator) {
+        accumulated += chunk;
+        onChunk(chunk, accumulated);
+    }
+
+    return accumulated;
+}
+
+/**
+ * Stream an AI chat completion with full message array support
+ * Used for streaming text responses (questions, explanations, etc.)
+ * Uses provider manager with automatic fallback across providers
+ * onChunk is called with each text fragment as it arrives
+ * Returns the complete text when done
+ */
+export async function streamAIChatResponse(
+    messages: ChatMessage[],
+    onChunk: (chunk: string, accumulated: string) => void,
+    options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string> {
+    const request: ChatCompletionRequest = {
+        messages,
+        temperature: options.temperature ?? 0.5,
+        max_tokens: options.maxTokens ?? 1024,
+        stream: true,
+    };
+
+    let accumulated = '';
+    const generator = getStreamingGenerator(request);
+
+    for await (const chunk of generator) {
+        accumulated += chunk;
+        onChunk(chunk, accumulated);
+    }
+
+    return accumulated;
 }
 
 /**
@@ -596,7 +647,6 @@ Respond with JSON:
 
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
             max_tokens: 200,
@@ -750,6 +800,97 @@ export async function processAIQuery(
     }
 }
 
+/**
+ * Streaming version of processAIQuery
+ * For text-based intents (question, explain), streams the answer in real-time
+ * For other intents, falls back to non-streaming processAIQuery
+ * Returns { isStreaming: true, intent } for streaming intents so the store knows a stream is active
+ */
+export async function processAIQueryStreaming(
+    query: string,
+    dataProfile: DataProfile,
+    fields: FieldInfo[],
+    data: DataRecord[],
+    currentEncodings: ShelfPlacement[],
+    chatHistory: AIMessage[] = [],
+    currentDashboard: DashboardConfig | null = null,
+    currentMark: MarkType = 'bar',
+    currentChartTitle?: string,
+    focusedChartId?: string | null,
+    onChunk?: (chunk: string, accumulated: string) => void,
+): Promise<AIQueryResult & { streamed?: boolean }> {
+    const hasCurrentChart = currentEncodings.length > 0;
+    const hasDashboard = currentDashboard !== null;
+
+    // Get intent with reasoning
+    const dataContext = `${fields.length} fields, ${dataProfile.rowCount} rows`;
+    const { intent, reasoning } = await detectIntent(query, hasCurrentChart, hasDashboard, dataContext, chatHistory);
+
+    console.log(`[AI Streaming] Intent: ${intent} | Reasoning: ${reasoning}`);
+
+    // Build visualization context for question answering
+    const chartContext = formatChartContext(currentChartTitle, currentMark, currentEncodings);
+    const dashboardContext = formatDashboardContext(currentDashboard);
+    const focusedChartContext = focusedChartId && currentDashboard
+        ? formatFocusedChartContext(focusedChartId, currentDashboard)
+        : '';
+
+    // Helper to get the provider display name after a call
+    const providerName = () => getLastProviderName() || undefined;
+
+    // For text-based intents, use streaming
+    if (onChunk && (intent === 'question' || intent === 'explain')) {
+        if (intent === 'question') {
+            const result = await processDataQuestionStreaming(
+                query, dataProfile, fields, data, chatHistory,
+                focusedChartContext || chartContext, dashboardContext, onChunk
+            );
+            return { ...result, streamed: true, provider: providerName() };
+        }
+        if (intent === 'explain') {
+            const result = await processExplainRequestStreaming(
+                query, dataProfile, fields, data, onChunk
+            );
+            return { ...result, streamed: true, provider: providerName() };
+        }
+    }
+
+    // For non-text intents, fall back to regular processing
+    let nonStreamResult: AIQueryResult;
+    switch (intent) {
+        case 'question':
+            nonStreamResult = await processDataQuestion(query, dataProfile, fields, data, chatHistory, focusedChartContext || chartContext, dashboardContext);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'chart':
+            nonStreamResult = await processChartRequest(query, dataProfile, fields, data, chatHistory);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'modify':
+            nonStreamResult = await processModifyRequest(query, fields, currentEncodings, currentMark, chatHistory);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'dashboard':
+            nonStreamResult = await processDashboardRequest(query, dataProfile, fields);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'modify_dashboard':
+            nonStreamResult = await processModifyDashboardRequest(query, dataProfile, fields, currentDashboard!, chatHistory);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'explain':
+            nonStreamResult = await processExplainRequest(query, dataProfile, fields, data);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'filter':
+            nonStreamResult = await processFilterRequest(query, dataProfile, fields);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'compare':
+            nonStreamResult = await processCompareRequest(query, dataProfile, fields, data);
+            return { ...nonStreamResult, provider: providerName() };
+        case 'forecast':
+            nonStreamResult = await processForecastRequest(query, dataProfile, fields, data);
+            return { ...nonStreamResult, provider: providerName() };
+        default:
+            nonStreamResult = await processChartRequest(query, dataProfile, fields, data, chatHistory);
+            return { ...nonStreamResult, provider: providerName() };
+    }
+}
+
 // ============================================
 // Data Question Answering
 // ============================================
@@ -823,7 +964,6 @@ Otherwise, respond with JSON:
 Respond with ONLY the JSON.`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 1024,
@@ -869,6 +1009,191 @@ Respond with ONLY the JSON.`;
             query,
             intent: 'question',
             error: error instanceof Error ? error.message : 'Failed to process question',
+        };
+    }
+}
+
+/**
+ * Streaming version of processDataQuestion
+ * Phase 1: Non-streamed JSON call to determine if data query is needed
+ * Phase 2: Stream the final answer using real SSE/streaming
+ */
+async function processDataQuestionStreaming(
+    query: string,
+    dataProfile: DataProfile,
+    _fields: FieldInfo[],
+    data: DataRecord[],
+    chatHistory: AIMessage[] = [],
+    chartContext: string = '',
+    dashboardContext: string = '',
+    onChunk: (chunk: string, accumulated: string) => void,
+): Promise<AIQueryResult> {
+    try {
+        const context = formatProfileForLLM(dataProfile);
+
+        // Build conversation context from recent messages
+        const recentHistory = chatHistory.slice(-6).map(m =>
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+        ).join('\n');
+
+        const prompt = `You are a helpful data analyst assistant for a data visualization tool called OpenViz. Answer the user's question about the data, charts, or dashboard.
+
+**DATASET OVERVIEW:**
+${context}
+
+**CURRENT CHART:**
+${chartContext || 'No chart currently configured.'}
+
+**DASHBOARD STATUS:**
+${dashboardContext || 'No dashboard active.'}
+
+${recentHistory ? `**RECENT CONVERSATION:**
+${recentHistory}
+
+` : ''}**USER QUESTION:** "${query}"
+
+**INSTRUCTIONS:**
+You can answer questions about:
+1. **Data Questions** - statistics, values, patterns in the data
+2. **Chart Questions** - "What does this chart show?", "What is the X-axis?", "What fields are being visualized?"
+3. **Dashboard Questions** - "What charts are in my dashboard?", "How many charts do I have?", "What does each chart show?"
+
+- If asking about the chart (e.g., "what does this chart show?"), describe the current visualization based on the chart context above
+- If asking about the dashboard (e.g., "what's in my dashboard?"), describe the charts using the dashboard status above
+- For follow-up questions (like "elaborate", "tell me more"), provide more details based on the previous conversation
+- For statistical questions about the data, provide accurate numbers
+
+If the question requires calculating specific values (sum, average, max, min, count), respond with JSON:
+{
+    "needsQuery": true,
+    "query": {
+        "operation": "sum" | "mean" | "min" | "max" | "count" | "distinct",
+        "field": "field name",
+        "groupBy": "optional field for grouping",
+        "orderBy": { "field": "field", "direction": "asc" | "desc" },
+        "limit": optional number
+    }
+}
+
+Otherwise, respond with JSON:
+{
+    "needsQuery": false,
+    "answer": "Your detailed, helpful answer here. Be specific and informative."
+}
+
+Respond with ONLY the JSON.`;
+
+        // Phase 1: Non-streamed call to get query plan or direct answer
+        const response = await callAI({
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            max_tokens: 1024,
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error('No response from AI');
+        }
+
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error('Invalid AI response format');
+        }
+
+        const aiResponse = JSON.parse(jsonMatch[0]) as {
+            needsQuery: boolean;
+            query?: DataQuery;
+            answer?: string;
+        };
+
+        // Phase 2: Stream the final answer
+        let dataContext = '';
+        if (aiResponse.needsQuery && aiResponse.query) {
+            const queryResult = executeDataQuery(data, aiResponse.query);
+            dataContext = `\nData query result for "${aiResponse.query.operation} of ${aiResponse.query.field}${aiResponse.query.groupBy ? ' grouped by ' + aiResponse.query.groupBy : ''}":\n${JSON.stringify(queryResult)}\n`;
+        } else if (aiResponse.answer) {
+            // Direct answer - no need to stream a second call, just stream the existing text
+            // Use simulated streaming for consistency
+            let accumulated = '';
+            const chars = aiResponse.answer;
+            const chunkSize = 4;
+            for (let i = 0; i < chars.length; i += chunkSize) {
+                const chunk = chars.slice(i, i + chunkSize);
+                accumulated += chunk;
+                onChunk(chunk, accumulated);
+                await new Promise(r => setTimeout(r, 8));
+            }
+            return { query, intent: 'question', textAnswer: aiResponse.answer };
+        }
+
+        // Stream a natural-language answer based on the query result
+        const answerPrompt = `You are a helpful data analyst. The user asked: "${query}"
+
+${dataContext}
+
+Provide a clear, concise, and helpful answer based on the data above. Use markdown formatting (bold for numbers, bullet points for lists). Be specific with numbers and data values. Do not wrap in JSON, just write the answer directly.`;
+
+        const textAnswer = await streamAIChatResponse(
+            [{ role: 'user', content: answerPrompt }],
+            onChunk,
+            { temperature: 0.3, maxTokens: 1024 }
+        );
+
+        return { query, intent: 'question', textAnswer };
+
+    } catch (error) {
+        console.error('Data Question Streaming Error:', error);
+        return {
+            query,
+            intent: 'question',
+            error: error instanceof Error ? error.message : 'Failed to process question',
+        };
+    }
+}
+
+/**
+ * Streaming version of processExplainRequest
+ * Streams the explanation text as it arrives from the LLM
+ */
+async function processExplainRequestStreaming(
+    query: string,
+    dataProfile: DataProfile,
+    _fields: FieldInfo[],
+    _data: DataRecord[],
+    onChunk: (chunk: string, accumulated: string) => void,
+): Promise<AIQueryResult> {
+    try {
+        const context = formatProfileForLLM(dataProfile);
+
+        const answerPrompt = `You are a data analyst explaining patterns in data for OpenViz.
+
+Dataset:
+${context}
+
+User question: "${query}"
+
+Analyze the data context and provide a clear, detailed explanation. Consider:
+- Correlations between fields
+- Time-based patterns
+- Category distributions
+- Potential causes
+
+Write your explanation directly using markdown formatting. Do not wrap in JSON.`;
+
+        const textAnswer = await streamAIChatResponse(
+            [{ role: 'user', content: answerPrompt }],
+            onChunk,
+            { temperature: 0.5, maxTokens: 1024 }
+        );
+
+        return { query, intent: 'explain', textAnswer };
+
+    } catch (error) {
+        console.error('Explain Streaming Error:', error);
+        return {
+            query,
+            intent: 'explain',
+            error: error instanceof Error ? error.message : 'Failed to generate explanation',
         };
     }
 }
@@ -1025,7 +1350,6 @@ ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER R
 Respond with ONLY valid JSON.`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
                 { role: 'user', content: prompt }
@@ -1203,7 +1527,6 @@ ${currentChart}
 Respond ONLY with valid JSON.`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 1024,
@@ -1314,8 +1637,7 @@ Respond with ONLY valid JSON:
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             const response = await callAI({
-                model: AI_MODEL,
-                messages: [
+                    messages: [
                     { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
                     { role: 'user', content: prompt }
                 ],
@@ -1565,7 +1887,6 @@ Respond with ONLY valid JSON.`;
 
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
                 { role: 'user', content: prompt }
@@ -1733,7 +2054,6 @@ Respond with JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
             max_tokens: 1024,
@@ -1992,7 +2312,6 @@ Respond with ONLY valid JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
                 { role: 'user', content: prompt }
@@ -2086,7 +2405,6 @@ Respond with ONLY valid JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
                 { role: 'user', content: prompt }
@@ -2188,7 +2506,6 @@ Respond with ONLY valid JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON.' },
                 { role: 'user', content: prompt }
@@ -2267,7 +2584,6 @@ Respond with ONLY valid JSON:
 export async function generateNarrative(prompt: string): Promise<string> {
     try {
         const response = await callAI({
-            model: AI_MODEL,
             messages: [
                 { role: 'system', content: 'You are a concise data analyst. Write clear, specific insights using numbers. No filler words.' },
                 { role: 'user', content: prompt }
@@ -2303,7 +2619,7 @@ export async function processNaturalLanguageQuery(
             exampleValues: [],
         })),
         generatedAt: new Date(),
-    }, fields, []);
+    }, fields, [], []);
 }
 
 export async function generateDataInsights(
@@ -2338,7 +2654,6 @@ Respond with a JSON array (and ONLY the JSON array):
 ]`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
             max_tokens: 2048,
@@ -2430,7 +2745,6 @@ Respond with ONLY JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 1024,
@@ -2529,7 +2843,6 @@ Respond with ONLY JSON:
 }`;
 
         const response = await callAI({
-            model: AI_MODEL,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 2048,
@@ -2573,6 +2886,7 @@ Respond with ONLY JSON:
 }
 
 export function isAIAvailable(): boolean {
-    return Boolean(GROQ_API_KEY);
+    // Check if any provider is available (Groq, OpenAI, or Anthropic)
+    return isAnyProviderAvailable() || Boolean(AI_PROXY_URL);
 }
 

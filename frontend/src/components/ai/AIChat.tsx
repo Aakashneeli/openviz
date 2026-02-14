@@ -3,13 +3,13 @@
 // ============================================
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle, X, Focus, RefreshCw } from 'lucide-react';
+import { Sparkles, Send, Loader2, MessageSquare, Minimize2, AlertCircle, BarChart3, LayoutDashboard, MessageCircle, HelpCircle, X, Focus, RefreshCw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CodePreview } from '@/components/ui/CodePreview';
-import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode } from '@/store/useVizStore';
-import { isAIAvailable } from '@backend/services/groqService';
+import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode, selectAIStreamingMessageId } from '@/store/useVizStore';
+import { isAIAvailable, getAvailableProviderNames } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -25,8 +25,9 @@ export function AIChat() {
     const dataset = useVizStore(selectDataset);
     const aiLoading = useVizStore(selectAILoading);
     const chatHistory = useVizStore(selectAIChatHistory);
-    const { processAIQuery, retryLastQuery } = useVizStore();
+    const { processAIQuery, retryLastQuery, setMessageFeedback } = useVizStore();
     const lastFailedQuery = useVizStore(state => state.lastFailedQuery);
+    const streamingMessageId = useVizStore(selectAIStreamingMessageId);
 
     // Chart focus context
     const aiFocusedChartId = useVizStore(state => state.aiFocusedChartId);
@@ -167,7 +168,14 @@ export function AIChat() {
                             </div>
                             <div>
                                 <span className="block text-sm font-semibold text-slate-200 leading-none mb-0.5">OpenViz AI</span>
-                                <span className="text-[10px] text-indigo-400">Powered by LLaMA 3</span>
+                                <span className="text-[10px] text-indigo-400">
+                                    {(() => {
+                                        const providers = getAvailableProviderNames();
+                                        return providers.length > 0
+                                            ? `${providers.join(' · ')}`
+                                            : 'No providers configured';
+                                    })()}
+                                </span>
                             </div>
                         </div>
                         <Button
@@ -290,9 +298,18 @@ export function AIChat() {
                                                     {msg.resultType === 'text' ? 'Answer' :
                                                         msg.resultType === 'chart' ? 'Chart Updated' :
                                                             msg.resultType === 'dashboard' ? 'Dashboard' : 'Response'}
+                                                    {msg.provider && (
+                                                        <span className="ml-auto text-[9px] font-normal normal-case text-slate-500">
+                                                            via {msg.provider}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             )}
                                             {msg.content}
+                                            {/* Blinking cursor for streaming messages */}
+                                            {streamingMessageId === msg.id && (
+                                                <span className="inline-block w-0.5 h-3.5 bg-indigo-400 animate-pulse ml-0.5 align-middle" />
+                                            )}
 
                                             {/* Retry button for error messages */}
                                             {msg.role === 'assistant' && msg.resultType === 'error' && lastFailedQuery && !aiLoading && (
@@ -314,14 +331,52 @@ export function AIChat() {
                                                     />
                                                 </div>
                                             )}
+
+                                            {/* Feedback buttons for assistant messages (non-error) */}
+                                            {msg.role === 'assistant' && msg.resultType !== 'error' && (
+                                                <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-white/5">
+                                                    <button
+                                                        onClick={() => setMessageFeedback(msg.id, 'positive')}
+                                                        className={cn(
+                                                            "p-1 rounded transition-colors",
+                                                            msg.feedback === 'positive'
+                                                                ? "text-emerald-400 bg-emerald-500/20"
+                                                                : "text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                                                        )}
+                                                        title="Helpful"
+                                                    >
+                                                        <ThumbsUp className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setMessageFeedback(msg.id, 'negative')}
+                                                        className={cn(
+                                                            "p-1 rounded transition-colors",
+                                                            msg.feedback === 'negative'
+                                                                ? "text-red-400 bg-red-500/20"
+                                                                : "text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                                                        )}
+                                                        title="Not helpful"
+                                                    >
+                                                        <ThumbsDown className="w-3 h-3" />
+                                                    </button>
+                                                    {msg.feedback && (
+                                                        <span className="text-[9px] text-slate-500 ml-1">Thanks!</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
-                                {aiLoading && (
+                                {aiLoading && !streamingMessageId && (
                                     <div className="flex justify-start">
                                         <div className="bg-white/5 px-3.5 py-2 rounded-2xl flex items-center gap-2 border border-white/5">
                                             <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
                                             <span className="text-xs text-slate-400">Thinking...</span>
+                                            <span className="flex gap-0.5">
+                                                <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                                <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                                <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                            </span>
                                         </div>
                                     </div>
                                 )}

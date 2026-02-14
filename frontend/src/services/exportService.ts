@@ -1,10 +1,11 @@
 // ============================================
 // Export Service - Export Charts & Dashboards
-// Supports PDF, PNG, and SVG formats
+// Supports PDF, PNG, SVG formats and Dashboard JSON
 // Uses jsPDF for PDF, ECharts native export for images
 // ============================================
 
 import { jsPDF } from 'jspdf';
+import type { DashboardConfig, Dataset } from '@backend/types';
 
 export interface ExportOptions {
     filename?: string;
@@ -321,4 +322,86 @@ export async function exportDashboardToPDF(
         console.error('[Export] Dashboard PDF generation failed:', error);
         throw new Error('Failed to generate dashboard PDF');
     }
+}
+
+// ============================================
+// Dashboard JSON Export/Import
+// ============================================
+
+interface DashboardExportData {
+    version: 1;
+    exportedAt: string;
+    dashboard: DashboardConfig;
+    dataset: Dataset;
+}
+
+/**
+ * Export dashboard config + dataset as a JSON file
+ */
+export function exportDashboardToJSON(
+    dashboard: DashboardConfig,
+    dataset: Dataset,
+    filename?: string
+): void {
+    const exportData: DashboardExportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        dashboard,
+        dataset,
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const name = filename || `${(dashboard.title || 'dashboard').replace(/\s+/g, '_')}.json`;
+    downloadDataURL(url, name);
+    URL.revokeObjectURL(url);
+
+    console.log('[Export] Dashboard JSON exported successfully:', name);
+}
+
+/**
+ * Import a dashboard from a JSON file
+ * Returns the parsed dashboard config and dataset, or throws on invalid data
+ */
+export async function importDashboardFromJSON(file: File): Promise<{
+    dashboard: DashboardConfig;
+    dataset: Dataset;
+}> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const data = JSON.parse(reader.result as string) as DashboardExportData;
+
+                // Validate basic structure
+                if (!data.dashboard || !data.dataset) {
+                    throw new Error('Invalid dashboard file: missing dashboard or dataset');
+                }
+                if (!data.dashboard.charts || !Array.isArray(data.dashboard.charts)) {
+                    throw new Error('Invalid dashboard file: charts must be an array');
+                }
+                if (!data.dataset.fields || !Array.isArray(data.dataset.fields)) {
+                    throw new Error('Invalid dashboard file: dataset fields must be an array');
+                }
+                if (!data.dataset.data || !Array.isArray(data.dataset.data)) {
+                    throw new Error('Invalid dashboard file: dataset data must be an array');
+                }
+
+                // Revive Date objects
+                data.dashboard.createdAt = new Date(data.dashboard.createdAt);
+                data.dataset.uploadedAt = new Date(data.dataset.uploadedAt);
+
+                resolve({
+                    dashboard: data.dashboard,
+                    dataset: data.dataset,
+                });
+            } catch (err) {
+                reject(err instanceof Error ? err : new Error('Failed to parse dashboard JSON'));
+            }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
 }

@@ -93,7 +93,12 @@ export type AggregateFunction =
     | 'min'
     | 'max'
     | 'median'
-    | 'distinct';
+    | 'distinct'
+    // Advanced aggregations
+    | 'variance'
+    | 'stddev'
+    | 'percent_of_total'
+    | 'cumulative_sum';
 
 /** Time unit for temporal fields */
 export type TimeUnit =
@@ -216,6 +221,8 @@ export interface AIQueryResult {
     comparisonSpec?: ComparisonSpec;
     comparisonResult?: ComparisonResult;
     forecastResult?: ForecastResult;
+    /** Which AI provider fulfilled this request */
+    provider?: string;
 }
 
 /** AI intent classification */
@@ -243,6 +250,10 @@ export interface AIMessage {
     chartConfig?: ChartConfig;
     /** Store the generated ECharts option for Transparency Mode */
     echartsOption?: EChartsOption;
+    /** User feedback on this message (thumbs up/down) */
+    feedback?: 'positive' | 'negative';
+    /** Which AI provider generated this response */
+    provider?: string;
 }
 
 // ============================================
@@ -295,8 +306,81 @@ export interface CleaningSuggestion {
 }
 
 // ============================================
+// Calculated Fields
+// ============================================
+
+/** A user-created or AI-created derived field */
+export interface CalculatedField {
+    id: string;
+    name: string;
+    formula: string;
+    resultType: FieldType;
+    referencedFields: string[];
+    createdBy: 'user' | 'ai';
+}
+
+// ============================================
+// Cross-Chart Filtering
+// ============================================
+
+/** Cross-filter applied from one chart to others in a dashboard */
+export interface CrossFilter {
+    sourceChartId: string;
+    field: string;
+    value: string | number | (string | number)[];
+    operator: 'eq' | 'in';
+}
+
+// ============================================
+// Drill-Down Navigation
+// ============================================
+
+/** Temporal hierarchy levels for drill-down */
+export type TemporalDrillLevel = 'year' | 'quarter' | 'month' | 'week' | 'day';
+
+/** Types of detectable drill hierarchies */
+export type DrillHierarchyType = 'temporal' | 'categorical';
+
+/** A single step in the drill path */
+export interface DrillLevel {
+    field: string;
+    value: string | number;
+    level: TemporalDrillLevel | string;
+    label: string;
+}
+
+/** Detected hierarchy for a field */
+export interface DrillHierarchy {
+    type: DrillHierarchyType;
+    sourceField: string;
+    availableLevels: string[];
+}
+
+// ============================================
+// Data Source Tracking (for refresh capability)
+// ============================================
+
+/** Tracks where the current dataset was loaded from */
+export type DataSourceType = 'file' | 'url' | 'google-sheets' | 'sample';
+
+export interface DataSourceInfo {
+    type: DataSourceType;
+    /** For URL sources */
+    url?: string;
+    /** For Google Sheets sources */
+    spreadsheetId?: string;
+    sheetName?: string;
+    spreadsheetTitle?: string;
+    /** When data was last fetched */
+    lastFetchedAt: Date;
+}
+
+// ============================================
 // Dashboard Configuration
 // ============================================
+
+/** Refresh interval options (in milliseconds) */
+export type RefreshInterval = null | 60000 | 300000 | 900000 | 3600000;
 
 /** Dashboard layout configuration */
 export interface DashboardConfig {
@@ -305,6 +389,7 @@ export interface DashboardConfig {
     charts: ChartConfig[];
     layout: DashboardLayout;
     createdAt: Date;
+    refreshInterval?: RefreshInterval;
 }
 
 /** Saved dashboard wrapper with metadata */
@@ -329,6 +414,41 @@ export interface DashboardLayoutItem {
     row: number;
     colSpan: number;
     rowSpan: number;
+}
+
+// ============================================
+// Dashboard Templates
+// ============================================
+
+/** A chart slot within a dashboard template, referencing an existing ChartTemplate by ID */
+export interface DashboardTemplateChartSlot {
+    /** References a ChartTemplate.id from chartTemplates.ts */
+    chartTemplateId: string;
+    /** Suggested title for this chart in the dashboard */
+    suggestedTitle: string;
+    /** Grid position and span */
+    layout: {
+        col: number;
+        row: number;
+        colSpan: number;
+        rowSpan: number;
+    };
+}
+
+/** A pre-built dashboard template with multiple chart slots */
+export interface DashboardTemplate {
+    id: string;
+    name: string;
+    description: string;
+    category: 'sales' | 'marketing' | 'operations' | 'finance' | 'general';
+    /** Chart slots to populate */
+    chartSlots: DashboardTemplateChartSlot[];
+    /** Number of grid columns (typically 2) */
+    cols: number;
+    /** Lucide icon name for the gallery */
+    icon: string;
+    /** Tags for search */
+    tags: string[];
 }
 
 // ============================================

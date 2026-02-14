@@ -2,36 +2,79 @@
 // DashboardGrid - Multi-Chart Display with Controls
 // ============================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { X, Maximize2, Activity, Trash2, Copy, Edit3, Plus, LayoutGrid, Pencil, Check, Sparkles, MessageSquare, ChevronDown, FileDown, Loader2, FileText } from 'lucide-react';
+import { X, Maximize2, Activity, Trash2, Copy, Edit3, Plus, LayoutGrid, LayoutTemplate, Pencil, Check, Sparkles, MessageSquare, ChevronDown, FileDown, Loader2, FileText, Share2, Filter, RefreshCw, Clock, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DashboardSummaryPanel } from '@/components/canvas/DashboardSummaryPanel';
 import { ReportGenerator } from '@/components/report/ReportGenerator';
-import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading } from '@/store/useVizStore';
+import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading, selectCrossFilters, selectCrossFilterEnabled, selectDataSource, selectIsRefreshing, selectLastRefreshedAt } from '@/store/useVizStore';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import type { ChartConfig } from '@backend/types';
-import { exportDashboardToPDF } from '@/services/exportService';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import type { ChartConfig, CrossFilter, DataRecord, RefreshInterval } from '@backend/types';
+import { exportDashboardToPDF, exportDashboardToJSON } from '@/services/exportService';
+import { exportDashboardToPPTX } from '@/services/pptxExportService';
+import { generateShareURL, copyToClipboard } from '@/services/shareService';
 import { toast } from '@/lib/toast';
+import { DashboardTemplateGallery } from '@/components/canvas/DashboardTemplateGallery';
+
+/** Apply cross-filters to data for a specific chart */
+function applyCrossFiltersToData(
+    data: DataRecord[],
+    crossFilters: CrossFilter[],
+    chartId: string
+): DataRecord[] {
+    // Only apply filters from OTHER charts (not from this chart itself)
+    const relevantFilters = crossFilters.filter(f => f.sourceChartId !== chartId);
+    if (relevantFilters.length === 0) return data;
+
+    return data.filter(row => {
+        return relevantFilters.every(filter => {
+            const rowValue = row[filter.field];
+            if (filter.operator === 'eq') {
+                return String(rowValue) === String(filter.value);
+            } else if (filter.operator === 'in' && Array.isArray(filter.value)) {
+                return filter.value.some(v => String(rowValue) === String(v));
+            }
+            return true;
+        });
+    });
+}
 
 interface DashboardChartProps {
     config: ChartConfig;
-    data: Record<string, unknown>[];
+    data: DataRecord[];
     isFocused: boolean;
     isBlur: boolean;
+    isFiltered: boolean;
+    crossFilters: CrossFilter[];
+    crossFilterEnabled: boolean;
     onHover: (id: string | null) => void;
     onEdit: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
     onAskAI: () => void;
+    onChartClick: (chartId: string, field: string, value: string | number) => void;
 }
 
-function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDelete, onDuplicate, onAskAI }: DashboardChartProps) {
+function DashboardChart({ config, data, isFocused, isBlur, isFiltered, crossFilters, crossFilterEnabled, onHover, onEdit, onDelete, onDuplicate, onAskAI, onChartClick }: DashboardChartProps) {
+    const chartRef = useRef<ReactECharts>(null);
+
+    // Apply cross-filters to this chart's data
+    const chartData = crossFilterEnabled && crossFilters.length > 0
+        ? applyCrossFiltersToData(data, crossFilters, config.id)
+        : data;
+
     const echartsOption = config.encodings.length > 0
-        ? buildEChartsOption(config, data)
+        ? buildEChartsOption(config, chartData)
         : null;
 
     const dashboardOption = echartsOption ? {
@@ -44,6 +87,37 @@ function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDe
             top: 40,
         },
     } : null;
+
+    // Handle chart click for cross-filtering
+    const onEvents = crossFilterEnabled ? {
+        click: (params: { name?: string; value?: unknown; seriesName?: string; data?: unknown; componentType?: string }) => {
+            if (!params.name && !params.value) return;
+
+            // Determine the field to filter on - use x-axis field (category) for most charts
+            const xEncoding = config.encodings.find(e => e.channel === 'x');
+            const thetaEncoding = config.encodings.find(e => e.channel === 'theta');
+            const colorEncoding = config.encodings.find(e => e.channel === 'color');
+
+            let field: string | undefined;
+            let value: string | number | undefined;
+
+            if (params.componentType === 'series') {
+                // For pie/arc charts, use the name (category label)
+                if (config.mark === 'arc' && (thetaEncoding || colorEncoding)) {
+                    field = colorEncoding?.field.name || thetaEncoding?.field.name;
+                    value = params.name;
+                } else if (xEncoding) {
+                    // For bar/line/etc., use the x-axis field
+                    field = xEncoding.field.name;
+                    value = params.name ?? (typeof params.value === 'number' ? params.value : undefined);
+                }
+            }
+
+            if (field && value !== undefined) {
+                onChartClick(config.id, field, value);
+            }
+        },
+    } : undefined;
 
     return (
         <motion.div
@@ -58,7 +132,8 @@ function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDe
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className={cn(
                 "relative bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden group hover:border-indigo-500/50 hover:bg-white/10 transition-colors shadow-lg",
-                isFocused && "z-10 shadow-indigo-500/20 border-indigo-500/40"
+                isFocused && "z-10 shadow-indigo-500/20 border-indigo-500/40",
+                isFiltered && "ring-1 ring-cyan-500/40"
             )}
             onMouseEnter={() => onHover(config.id)}
             onMouseLeave={() => onHover(null)}
@@ -68,6 +143,11 @@ function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDe
                 <h3 className="text-xs font-medium text-slate-200 truncate flex items-center gap-2">
                     <Activity className="w-3 h-3 text-indigo-400" />
                     {config.title || `${config.mark} Chart`}
+                    {isFiltered && (
+                        <span className="text-[9px] font-mono bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">
+                            SOURCE
+                        </span>
+                    )}
                 </h3>
 
                 {/* Chart Controls - Always visible on hover */}
@@ -124,12 +204,14 @@ function DashboardChart({ config, data, isFocused, isBlur, onHover, onEdit, onDe
             <div className="p-2">
                 {dashboardOption ? (
                     <ReactECharts
-                        key={config.encodings.map(e => `${e.channel}:${e.field.name}`).join('|')}
+                        ref={chartRef}
+                        key={`${config.encodings.map(e => `${e.channel}:${e.field.name}`).join('|')}|cf:${crossFilters.filter(f => f.sourceChartId !== config.id).map(f => `${f.field}=${f.value}`).join(',')}`}
                         option={dashboardOption}
                         style={{ width: '100%', height: 200 }}
                         notMerge={true}
                         lazyUpdate={false}
                         opts={{ renderer: 'canvas' }}
+                        onEvents={onEvents}
                     />
                 ) : (
                     <div className="h-[200px] flex items-center justify-center text-xs text-muted-foreground/50 animate-pulse">
@@ -157,10 +239,12 @@ function GhostSkeleton() {
 function EmptyDashboardState({
     onAIAutoSuggest,
     onBuildWithAI,
+    onFromTemplate,
     isLoading
 }: {
     onAIAutoSuggest: () => void;
     onBuildWithAI: () => void;
+    onFromTemplate: () => void;
     isLoading?: boolean;
 }) {
     return (
@@ -203,6 +287,18 @@ function EmptyDashboardState({
                     </div>
                     <span className="text-xs opacity-70 font-normal">Describe what you want</span>
                 </Button>
+
+                <Button
+                    onClick={onFromTemplate}
+                    variant="outline"
+                    className="border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-white px-6 py-5 h-auto flex-col gap-1 transition-all hover:-translate-y-0.5"
+                >
+                    <div className="flex items-center gap-2">
+                        <LayoutTemplate className="w-5 h-5" />
+                        <span className="font-semibold">From Template</span>
+                    </div>
+                    <span className="text-xs opacity-70 font-normal">Pre-built dashboard layouts</span>
+                </Button>
             </div>
 
             {/* Divider */}
@@ -225,6 +321,11 @@ export function DashboardGrid() {
     const dataset = useVizStore(selectDataset);
     const dashboardSummary = useVizStore(selectDashboardSummary);
     const summaryLoading = useVizStore(selectSummaryLoading);
+    const crossFilters = useVizStore(selectCrossFilters);
+    const crossFilterEnabled = useVizStore(selectCrossFilterEnabled);
+    const dataSource = useVizStore(selectDataSource);
+    const isRefreshing = useVizStore(selectIsRefreshing);
+    const lastRefreshedAt = useVizStore(selectLastRefreshedAt);
     const {
         deleteDashboard,
         closeDashboard,
@@ -238,6 +339,11 @@ export function DashboardGrid() {
         openChatForChart,
         resetChart,
         setShowReportModal,
+        setCrossFilter,
+        clearCrossFilters,
+        toggleCrossFilter,
+        setRefreshInterval,
+        refreshDashboardData,
     } = useVizStore();
 
     const [hoveredChart, setHoveredChart] = useState<string | null>(null);
@@ -247,6 +353,7 @@ export function DashboardGrid() {
     const [isAIGenerating, setIsAIGenerating] = useState(false);
     const [showAddChartMenu, setShowAddChartMenu] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [showDashboardTemplates, setShowDashboardTemplates] = useState(false);
 
     const dashboardRef = useRef<HTMLDivElement>(null);
 
@@ -269,6 +376,59 @@ export function DashboardGrid() {
         }
     };
 
+    const handleExportDashboardPPTX = async () => {
+        if (!dashboardRef.current || !dashboard) return;
+
+        setIsExporting(true);
+        try {
+            const chartTitles = dashboard.charts.map(c => c.title || `${c.mark} Chart`);
+            await exportDashboardToPPTX(
+                dashboardRef.current,
+                dashboard.title || 'Dashboard',
+                chartTitles,
+            );
+            toast.success('PowerPoint exported successfully', {
+                description: `${dashboard.charts.length} charts exported to PPTX`,
+            });
+        } catch (error) {
+            console.error('Dashboard PPTX export failed:', error);
+            toast.error('Failed to export PowerPoint', {
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportDashboardJSON = () => {
+        if (!dashboard || !dataset) return;
+        try {
+            exportDashboardToJSON(dashboard, dataset);
+            toast.success('Dashboard JSON exported successfully');
+        } catch (error) {
+            console.error('Dashboard JSON export failed:', error);
+            toast.error('Failed to export dashboard JSON');
+        }
+    };
+
+    const handleShareLink = async () => {
+        if (!dashboard || !dataset) return;
+        try {
+            const { url, tooLarge } = generateShareURL(dashboard, dataset);
+            const copied = await copyToClipboard(url);
+            if (copied) {
+                toast.success('Share link copied to clipboard', {
+                    description: tooLarge ? 'Warning: URL is very long — some browsers may truncate it' : undefined,
+                });
+            } else {
+                toast.error('Failed to copy link');
+            }
+        } catch (error) {
+            console.error('Share link generation failed:', error);
+            toast.error('Failed to generate share link');
+        }
+    };
+
     useEffect(() => {
         const timer = setTimeout(() => setIsLoading(false), 800);
         return () => clearTimeout(timer);
@@ -279,6 +439,28 @@ export function DashboardGrid() {
             setEditTitle(dashboard.title || 'Untitled Dashboard');
         }
     }, [dashboard?.title]);
+
+    // Auto-refresh interval
+    useEffect(() => {
+        const interval = dashboard?.refreshInterval;
+        if (!interval || !dataSource || (dataSource.type !== 'url' && dataSource.type !== 'google-sheets')) {
+            return;
+        }
+
+        const timer = setInterval(() => {
+            refreshDashboardData();
+        }, interval);
+
+        return () => clearInterval(timer);
+    }, [dashboard?.refreshInterval, dataSource, refreshDashboardData]);
+
+    // Time-ago display with periodic re-render
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!lastRefreshedAt && !dataSource?.lastFetchedAt) return;
+        const timer = setInterval(() => setTick(t => t + 1), 30000); // update every 30s
+        return () => clearInterval(timer);
+    }, [lastRefreshedAt, dataSource?.lastFetchedAt]);
 
     if (!dashboard) {
         return (
@@ -356,6 +538,35 @@ export function DashboardGrid() {
         // Dashboard stays in memory so user can add chart back to it
         resetChart();
         useVizStore.setState({ viewMode: 'single', editingChartId: null });
+    };
+
+    const canRefresh = dataSource && (dataSource.type === 'url' || dataSource.type === 'google-sheets');
+    const lastUpdatedTime = lastRefreshedAt || dataSource?.lastFetchedAt;
+
+    const formatTimeAgo = useCallback((date: Date | null | undefined) => {
+        if (!date) return '';
+        const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+        if (seconds < 60) return 'just now';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    }, []);
+
+    const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
+        { label: 'Off', value: null },
+        { label: '1 min', value: 60000 },
+        { label: '5 min', value: 300000 },
+        { label: '15 min', value: 900000 },
+        { label: '1 hour', value: 3600000 },
+    ];
+
+    const handleChartClick = (chartId: string, field: string, value: string | number) => {
+        setCrossFilter({
+            sourceChartId: chartId,
+            field,
+            value,
+            operator: 'eq',
+        });
     };
 
     return (
@@ -463,6 +674,22 @@ export function DashboardGrid() {
                                             </div>
                                         </button>
 
+                                        <button
+                                            onClick={() => {
+                                                setShowDashboardTemplates(true);
+                                                setShowAddChartMenu(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-cyan-500/20 transition-colors text-left"
+                                        >
+                                            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
+                                                <LayoutTemplate className="w-4 h-4 text-cyan-400" />
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-slate-100">From Template</div>
+                                                <div className="text-xs text-slate-400">Pre-built dashboard layouts</div>
+                                            </div>
+                                        </button>
+
                                         <div className="border-t border-white/5 my-1" />
 
                                         <button
@@ -488,6 +715,82 @@ export function DashboardGrid() {
                     <Button
                         variant="outline"
                         size="sm"
+                        onClick={toggleCrossFilter}
+                        className={cn(
+                            "h-7 text-xs border-white/10 text-slate-300",
+                            crossFilterEnabled
+                                ? "bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20 text-cyan-300"
+                                : "bg-white/5 hover:bg-white/10"
+                        )}
+                        title={crossFilterEnabled ? "Disable cross-filtering" : "Enable cross-filtering"}
+                    >
+                        <Filter className="h-3 w-3 mr-1.5" />
+                        Cross-Filter
+                    </Button>
+                    {/* Refresh Controls */}
+                    {canRefresh && (
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={refreshDashboardData}
+                                disabled={isRefreshing}
+                                className="h-7 text-xs bg-white/5 border-white/10 hover:bg-amber-500/20 hover:border-amber-500/30 text-slate-300"
+                                title="Refresh data now"
+                            >
+                                <RefreshCw className={cn("h-3 w-3 mr-1.5", isRefreshing && "animate-spin")} />
+                                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={cn(
+                                            "h-7 text-xs border-white/10 text-slate-300",
+                                            dashboard.refreshInterval
+                                                ? "bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 text-amber-300"
+                                                : "bg-white/5 hover:bg-white/10"
+                                        )}
+                                        title="Auto-refresh interval"
+                                    >
+                                        <Timer className="h-3 w-3 mr-1.5" />
+                                        {dashboard.refreshInterval
+                                            ? REFRESH_OPTIONS.find(o => o.value === dashboard.refreshInterval)?.label || 'Auto'
+                                            : 'Auto'
+                                        }
+                                        <ChevronDown className="h-3 w-3 ml-1" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-36">
+                                    {REFRESH_OPTIONS.map(option => (
+                                        <DropdownMenuItem
+                                            key={String(option.value)}
+                                            onClick={() => setRefreshInterval(option.value)}
+                                            className={cn(
+                                                "text-xs",
+                                                dashboard.refreshInterval === option.value && "text-amber-300 bg-amber-500/10"
+                                            )}
+                                        >
+                                            {option.label}
+                                            {dashboard.refreshInterval === option.value && (
+                                                <Check className="h-3 w-3 ml-auto" />
+                                            )}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            {lastUpdatedTime && (
+                                <span className="text-[10px] text-slate-500 flex items-center gap-1" title={`Last updated: ${new Date(lastUpdatedTime).toLocaleTimeString()}`}>
+                                    <Clock className="h-2.5 w-2.5" />
+                                    {formatTimeAgo(lastUpdatedTime)}
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setShowReportModal(true)}
                         className="h-7 text-xs bg-white/5 border-white/10 hover:bg-indigo-500/20 hover:border-indigo-500/30 text-slate-300"
                         title="Generate Report"
@@ -498,18 +801,43 @@ export function DashboardGrid() {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleExportDashboardPDF}
-                        disabled={isExporting || dashboard.charts.length === 0}
-                        className="h-7 text-xs bg-white/5 border-white/10 hover:bg-emerald-500/20 hover:border-emerald-500/30 text-slate-300"
-                        title="Export Dashboard as PDF"
+                        onClick={handleShareLink}
+                        disabled={dashboard.charts.length === 0}
+                        className="h-7 text-xs bg-white/5 border-white/10 hover:bg-cyan-500/20 hover:border-cyan-500/30 text-slate-300"
+                        title="Copy shareable link"
                     >
-                        {isExporting ? (
-                            <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                        ) : (
-                            <FileDown className="h-3 w-3 mr-1.5" />
-                        )}
-                        Export PDF
+                        <Share2 className="h-3 w-3 mr-1.5" />
+                        Share
                     </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isExporting || dashboard.charts.length === 0}
+                                className="h-7 text-xs bg-white/5 border-white/10 hover:bg-emerald-500/20 hover:border-emerald-500/30 text-slate-300"
+                            >
+                                {isExporting ? (
+                                    <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                ) : (
+                                    <FileDown className="h-3 w-3 mr-1.5" />
+                                )}
+                                Export
+                                <ChevronDown className="h-3 w-3 ml-1" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={handleExportDashboardPDF} className="text-xs">
+                                PDF Document
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleExportDashboardPPTX} className="text-xs">
+                                PowerPoint (PPTX)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleExportDashboardJSON} className="text-xs">
+                                Dashboard JSON
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                         variant="ghost"
                         size="icon"
@@ -540,10 +868,49 @@ export function DashboardGrid() {
                     onGenerate={generateDashboardSummary}
                 />
 
+                {/* Cross-Filter Badge Bar */}
+                {crossFilterEnabled && crossFilters.length > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="flex items-center gap-2 px-3 py-2 mt-2 bg-cyan-500/10 border border-cyan-500/20 rounded-lg"
+                    >
+                        <Filter className="h-3.5 w-3.5 text-cyan-400 flex-shrink-0" />
+                        <span className="text-xs text-cyan-300 font-medium">Filtering by:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {crossFilters.map((filter, idx) => (
+                                <span
+                                    key={`${filter.sourceChartId}-${filter.field}-${idx}`}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-500/20 text-cyan-200 rounded text-xs font-mono"
+                                >
+                                    {filter.field} = {String(filter.value)}
+                                    <button
+                                        onClick={() => setCrossFilter(filter)}
+                                        className="hover:text-white ml-0.5"
+                                        title="Remove this filter"
+                                    >
+                                        <X className="h-2.5 w-2.5" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearCrossFilters}
+                            className="ml-auto h-5 text-[10px] text-cyan-400 hover:text-cyan-200 hover:bg-cyan-500/10 px-2"
+                        >
+                            Clear All
+                        </Button>
+                    </motion.div>
+                )}
+
                 {dashboard.charts.length === 0 ? (
                     <EmptyDashboardState
                         onAIAutoSuggest={handleAIAutoSuggest}
                         onBuildWithAI={handleBuildWithAI}
+                        onFromTemplate={() => setShowDashboardTemplates(true)}
                         isLoading={isAIGenerating}
                     />
                 ) : (
@@ -576,10 +943,14 @@ export function DashboardGrid() {
                                             onHover={setHoveredChart}
                                             isFocused={!hoveredChart || hoveredChart === chart.id}
                                             isBlur={!!hoveredChart && hoveredChart !== chart.id}
+                                            isFiltered={crossFilters.some(f => f.sourceChartId === chart.id)}
+                                            crossFilters={crossFilters}
+                                            crossFilterEnabled={crossFilterEnabled}
                                             onEdit={() => editChartFromDashboard(chart.id)}
                                             onDelete={() => removeChartFromDashboard(chart.id)}
                                             onDuplicate={() => duplicateChartInDashboard(chart.id)}
                                             onAskAI={() => openChatForChart(chart.id)}
+                                            onChartClick={handleChartClick}
                                         />
                                     ))
                                 )}
@@ -591,6 +962,12 @@ export function DashboardGrid() {
 
             {/* Report modal */}
             <ReportGenerator />
+
+            {/* Dashboard Template Gallery */}
+            <DashboardTemplateGallery
+                open={showDashboardTemplates}
+                onOpenChange={setShowDashboardTemplates}
+            />
         </div>
     );
 }

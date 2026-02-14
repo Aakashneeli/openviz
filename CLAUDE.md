@@ -29,7 +29,17 @@ npm run lint
 
 # Install all dependencies
 npm run install:all
+
 ```
+
+## Workflow
+When starting a new session, read the task list or project plan file first before exploring the codebase broadly. Avoid deep codebase exploration unless specifically asked — focus on the task at hand.
+
+## Language & Conventions
+This is a TypeScript project. Use TypeScript idioms, strict typing, and follow existing patterns in the codebase. Check for existing type definitions before creating new ones.
+
+## Task Execution
+When implementing tasks from a task list, complete each task fully (including tests and edge cases) before moving to the next. Provide a brief summary of what was done and what remains when a task is finished.
 
 ### Working with Frontend/Backend
 The project uses a monorepo structure where `backend/` contains shared services bundled by the frontend:
@@ -316,3 +326,7 @@ function MyComponent() {
 - [ECharts Documentation](https://echarts.apache.org/en/index.html)
 - [Zustand Documentation](https://zustand-demo.pmnd.rs/)
 - [Groq API Docs](https://console.groq.com/docs)
+
+Add under a top-level ## Workflow section in CLAUDE.md\n\n
+Add under a ## Language & Conventions section in CLAUDE.md\n\nThis is a TypeScript project. Use TypeScript idioms, strict typing, and follow existing patterns in the codebase. Check for existing type definitions before creating new ones.
+Add under a ## Task Execution section in CLAUDE.md\n\nWhen implementing tasks from a task list, complete each task fully (including tests and edge cases) before moving to the next. Provide a brief summary of what was done and what remains when a task is finished.

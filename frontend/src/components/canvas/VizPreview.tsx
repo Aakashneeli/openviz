@@ -1,13 +1,16 @@
 // ============================================
 // VizPreview - ECharts Interactive Chart
+// With Drill-Down Navigation Support
 // ============================================
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { BarChart3, MousePointer2, Move, ZoomIn, Sparkles } from 'lucide-react';
+import { BarChart3, MousePointer2, Move, ZoomIn, Sparkles, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChartSummaryCard } from '@/components/canvas/ChartSummaryCard';
-import { useVizStore, selectEChartsOption, selectDataset, selectEncodings, selectChartSummary, selectSummaryLoading } from '@/store/useVizStore';
+import { DrillBreadcrumb } from '@/components/canvas/DrillBreadcrumb';
+import { useVizStore, selectEChartsOption, selectDataset, selectEncodings, selectChartSummary, selectSummaryLoading, selectDrillPath, selectDrillHierarchies } from '@/store/useVizStore';
+import { getCurrentDrillLevel, canDrillDeeper } from '@backend/services/drillService';
 
 
 interface VizPreviewProps {
@@ -21,7 +24,44 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
     const encodings = useVizStore(selectEncodings);
     const chartSummary = useVizStore(selectChartSummary);
     const summaryLoading = useVizStore(selectSummaryLoading);
-    const { generateChartSummary } = useVizStore();
+    const drillPath = useVizStore(selectDrillPath);
+    const drillHierarchies = useVizStore(selectDrillHierarchies);
+    const { generateChartSummary, drillDown } = useVizStore();
+
+    // Determine if drill-down is available for the current chart
+    const drillInfo = useMemo(() => {
+        if (!dataset || drillHierarchies.length === 0) return null;
+
+        // Check if x-axis has a temporal field with a hierarchy
+        const xEncoding = encodings.find(e => e.channel === 'x');
+        if (!xEncoding) return null;
+
+        const hierarchy = drillHierarchies.find(h => h.sourceField === xEncoding.field.name);
+        if (!hierarchy || hierarchy.type !== 'temporal') return null;
+
+        const currentLevel = getCurrentDrillLevel(drillPath, hierarchy.availableLevels);
+        const canGoDeeper = canDrillDeeper(drillPath, hierarchy.availableLevels);
+
+        return {
+            hierarchy,
+            currentLevel,
+            canGoDeeper,
+            field: xEncoding.field.name,
+        };
+    }, [dataset, drillHierarchies, encodings, drillPath]);
+
+    // Handle chart click for drill-down
+    const handleChartClick = useCallback((params: { name?: string; value?: unknown; componentType?: string }) => {
+        if (!drillInfo || !drillInfo.canGoDeeper) return;
+        if (!params.name) return;
+
+        drillDown(drillInfo.field, params.name, drillInfo.currentLevel);
+    }, [drillInfo, drillDown]);
+
+    const onEvents = useMemo((): Record<string, Function> | undefined => {
+        if (!drillInfo?.canGoDeeper) return undefined;
+        return { click: handleChartClick };
+    }, [drillInfo, handleChartClick]);
 
     // Calculate dynamic size based on data
     const chartSize = useMemo(() => {
@@ -53,10 +93,12 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
         };
     }, [dataset, encodings, minWidth, minHeight]);
 
-    // Generate a unique key based on encodings to force chart remount
+    // Generate a unique key based on encodings + drill path to force chart remount
     const chartKey = useMemo(() => {
-        return encodings.map(e => `${e.channel}:${e.field.name}`).join('|');
-    }, [encodings]);
+        const encKey = encodings.map(e => `${e.channel}:${e.field.name}`).join('|');
+        const drillKey = drillPath.map(d => `${d.level}:${d.value}`).join('/');
+        return `${encKey}#${drillKey}`;
+    }, [encodings, drillPath]);
 
     if (!dataset) {
         return (
@@ -120,6 +162,11 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                     <span className="flex items-center gap-1.5">
                         <ZoomIn className="w-3 h-3 text-primary" /> Pinch to zoom
                     </span>
+                    {drillInfo && (
+                        <span className="flex items-center gap-1.5 text-cyan-400">
+                            <Layers className="w-3 h-3" /> {drillInfo.canGoDeeper ? 'Click to drill down' : 'Deepest level'}
+                        </span>
+                    )}
                 </div>
                 <span className="text-[10px] text-muted-foreground font-mono bg-secondary/50 px-2 py-0.5 rounded">
                     {chartSize.width} × {chartSize.height}px
@@ -136,13 +183,20 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                 </Button>
             </div>
 
+            {/* Drill-Down Breadcrumb */}
+            {drillPath.length > 0 && (
+                <div className="px-4 py-2 border-b border-border bg-card/10">
+                    <DrillBreadcrumb />
+                </div>
+            )}
+
             {/* Scrollable chart container */}
             <div className="flex-1 overflow-auto p-8 relative">
                 {/* Chart Background Grid (Optional enhancement) */}
                 <div className="absolute inset-0 bg-[radial-gradient(#27272a_1px,transparent_1px)] [background-size:16px_16px] [mask-image:radial-gradient(ellipse_at_center,black,transparent)] opacity-20 pointer-events-none" />
 
                 <div
-                    className="relative z-0"
+                    className={`relative z-0 ${drillInfo?.canGoDeeper ? 'cursor-pointer' : ''}`}
                     style={{ width: chartSize.width, height: chartSize.height }}
                 >
                     <ReactECharts
@@ -152,6 +206,7 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
                         notMerge={true}
                         lazyUpdate={false}
                         opts={{ renderer: 'canvas' }}
+                        onEvents={onEvents}
                     />
                 </div>
 

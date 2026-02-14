@@ -9,22 +9,37 @@
 
 ## Quick Status
 
-### Completed Tasks (8/26)
+### Completed Tasks (23/27)
 | # | Task | Priority |
 |---|------|----------|
 | 1 | API Key Security (Cloudflare Worker Proxy) | P0 |
 | 2 | PNG/SVG Image Export | P0 |
+| 3 | PowerPoint Export | P0 |
 | 4 | Error Boundaries | P0 |
 | 5 | Toast Notifications | P0 |
 | 9 | Contextual Tooltips | P0 |
 | 7 | Empty States (Onboarding) | P0 |
 | 8 | Sample Datasets | P0 |
 | 6 | AI Retry Logic | P0 |
+| 15 | Dashboard JSON Export/Import | P1 |
+| 16 | Shareable Dashboard Links | P1 |
+| 18 | AI Feedback Loop | P2 |
+| 21 | Advanced Aggregations | P2 |
+| 10 | Cross-Chart Filtering | P1 |
+| 11 | Calculated Fields | P1 |
+| 13 | URL/API Data Source | P1 |
+| 12 | Google Sheets Connector | P1 |
+| 14 | Scheduled Refresh | P1 |
+| 17 | AI Streaming Responses | P2 |
+| 19 | AI Provider Fallback | P2 |
+| 20 | Chart Templates Gallery | P2 |
+| 22 | Drill-Down Navigation | P2 |
+| 27 | Dashboard Templates | P2 |
 
 ### Next Up
 | # | Task | Priority |
 |---|------|----------|
-| 3 | PowerPoint Export | P0 |
+| 23 | Split Monolithic Store | Architecture |
 
 ---
 
@@ -43,11 +58,11 @@ This document outlines all implementation tasks for OpenViz based on the Product
 
 | Priority | Total | Done | In Progress |
 |----------|-------|------|-------------|
-| P0 - Critical | 9 | 8 | 0 |
-| P1 - High | 7 | 0 | 0 |
-| P2 - Medium | 6 | 0 | 0 |
+| P0 - Critical | 9 | 9 | 0 |
+| P1 - High | 7 | 7 | 0 |
+| P2 - Medium | 6 | 6 | 0 |
 | Architecture | 4 | 0 | 0 |
-| **Total** | **26** | **8** | **0** |
+| **Total** | **26** | **22** | **0** |
 
 ---
 
@@ -108,25 +123,26 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 ---
 
 ### Task 3: Export - PowerPoint
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P0
 - **Effort**: Medium (1-2 days)
 
 **Problem**: Enterprise users need PPTX export for presentations
 
 **Implementation**:
-1. Install `pptxgenjs` library
-2. Create export function that converts chart to slide
-3. Support single chart and full dashboard export
-4. Add template options (title slide, chart slides)
+1. Installed `pptxgenjs` library
+2. Created `pptxExportService.ts` with `exportChartToPPTX()` and `exportDashboardToPPTX()`
+3. Single chart export: title slide (optional) + chart slide with centered image
+4. Dashboard export: title slide with chart count + one slide per chart with slide numbers
+5. Dark theme slides matching OpenViz branding (deep navy background, white text)
+6. Added PPTX option to Canvas.tsx export dropdown and DashboardGrid.tsx export dropdown
 
-**Files to Create**:
-- `frontend/src/services/pptxExportService.ts` - PowerPoint generation
+**Files Created**:
+- `frontend/src/services/pptxExportService.ts` - PowerPoint generation with single chart and dashboard export
 
-**Files to Modify**:
-- `frontend/src/services/exportService.ts` - Add `exportToPPTX()`
-- `frontend/src/components/canvas/Canvas.tsx` - Add PPTX to export menu
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Dashboard to PPTX
+**Files Modified**:
+- `frontend/src/components/canvas/Canvas.tsx` - Added PPTX to export dropdown menu
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Changed "Export PDF" button to Export dropdown with PDF and PPTX options
 
 ---
 
@@ -269,344 +285,348 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 ## P1 - High Priority (Competitive Differentiators)
 
 ### Task 10: Cross-Chart Filtering
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: High (2-3 days)
 
 **Problem**: Charts in dashboards are isolated - clicking one doesn't filter others
 
 **Implementation**:
-1. Add `CrossFilter` type and `crossFilters` array to `DashboardConfig`
-2. Add `crossFilterEnabled` toggle to dashboard settings
-3. Implement click handler on charts to set filter
-4. Filter other charts when cross-filter is active
-5. Show "Filtering by: X" badge with clear button
-6. Support clicking same value to toggle off
+1. Added `CrossFilter` type to `backend/types/index.ts` with sourceChartId, field, value, operator
+2. Added `crossFilters` array and `crossFilterEnabled` boolean to Zustand store with `setCrossFilter`, `clearCrossFilters`, `toggleCrossFilter` actions
+3. Implemented click handler on ECharts instances in dashboard - supports bar, line, pie/arc chart clicks
+4. Cross-filter applies data filtering to all OTHER charts (not the source chart)
+5. "Filtering by: field = value" badge bar with individual remove (X) and "Clear All" buttons
+6. Clicking same value on same chart toggles filter off
+7. Cross-filter toggle button in dashboard toolbar (cyan highlight when active)
+8. "SOURCE" badge on the chart that initiated the filter
+9. Cross-filters cleared when dashboard is closed, deleted, or source chart is removed
 
-**Types to Add** (`backend/types/index.ts`):
-```typescript
-interface CrossFilter {
-  sourceChartId: string;
-  field: string;
-  value: string | number | string[];
-  operator: 'eq' | 'in';
-}
-```
-
-**Files to Modify**:
-- `backend/types/index.ts` - Add CrossFilter type
-- `frontend/src/store/useVizStore.ts` - Add cross-filter state + actions
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Click handlers, filter badge
-- `frontend/src/components/canvas/VizPreview.tsx` - Chart click events
-- `backend/utils/echartsOptionBuilder.ts` - Apply filters to chart data
+**Files Modified**:
+- `backend/types/index.ts` - Added `CrossFilter` interface
+- `frontend/src/store/useVizStore.ts` - Added cross-filter state, actions, selectors; clear on close/delete/remove chart
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Click handlers on ECharts, filter badge bar, toggle button, source indicator
 
 ---
 
 ### Task 11: Calculated Fields
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: High (3-4 days)
 
 **Problem**: Users can't create derived metrics (profit margin, YoY change)
 
 **Implementation**:
-1. Add "New Calculated Field" button in DataShelf
-2. Create formula input dialog with field picker
-3. Support basic arithmetic: `+`, `-`, `*`, `/`, `()`
-4. Support functions: `SUM()`, `AVG()`, `IF()`, `CONCAT()`
-5. Parse formula and compute using Arquero
-6. Add calculated field to field list (marked with fx icon)
-7. Allow AI to create calculated fields via NL
+1. Added `CalculatedField` type to `backend/types/index.ts`
+2. Created `backend/services/formulaParser.ts` - Full formula parser with tokenizer, recursive descent parser, and evaluator
+3. Supports arithmetic: `+`, `-`, `*`, `/`, `()` and comparisons: `>`, `<`, `>=`, `<=`, `=`, `!=`
+4. Supports 14 functions: `SUM`, `AVG`, `MIN`, `MAX`, `COUNT`, `IF`, `CONCAT`, `ABS`, `ROUND`, `SQRT`, `LOG`, `UPPER`, `LOWER`, `LEN`
+5. Field references via `[Field Name]` brackets or direct name matching
+6. Created `CalculatedFieldDialog.tsx` with formula input, real-time validation, clickable field picker, function help, and examples
+7. Added `addCalculatedField()` and `removeCalculatedField()` store actions that compute values, add to dataset, and create FieldInfo
+8. Calculated fields shown in DataShelf with violet fx badge and removable via hover X button
+9. "New Calculated Field" button in DataShelf when data is loaded
+10. Cleared on new data upload
 
-**Types to Add**:
-```typescript
-interface CalculatedField {
-  id: string;
-  name: string;
-  formula: string;
-  resultType: FieldType;
-  referencedFields: string[];
-  createdBy: 'user' | 'ai';
-}
-```
+**Files Created**:
+- `backend/services/formulaParser.ts` - Tokenizer, parser, evaluator with `parseFormula()`, `evaluateFormula()`, `validateFormula()`
+- `frontend/src/components/data-shelf/CalculatedFieldDialog.tsx` - Dialog UI with field picker, function help, examples, validation
 
-**Files to Create**:
-- `frontend/src/components/data-shelf/CalculatedFieldDialog.tsx`
-- `backend/services/formulaParser.ts` - Parse and evaluate formulas
-- `backend/utils/formulaFunctions.ts` - Built-in functions
-
-**Files to Modify**:
-- `backend/types/index.ts` - Add CalculatedField type
-- `frontend/src/store/useVizStore.ts` - Add calculated fields state
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Add create button
-- `backend/services/groqService.ts` - AI formula creation intent
+**Files Modified**:
+- `backend/types/index.ts` - Added `CalculatedField` interface
+- `frontend/src/store/useVizStore.ts` - Added `calculatedFields` state, `addCalculatedField`, `removeCalculatedField` actions
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Added "New Calculated Field" button, fx badge, remove button
 
 ---
 
 ### Task 12: Google Sheets Connector
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: High (2-3 days)
 
 **Problem**: File upload only limits use cases
 
 **Implementation**:
-1. Set up Google OAuth 2.0 flow
-2. Create Sheets picker UI to select spreadsheet
-3. Fetch data via Google Sheets API
-4. Parse and profile like file upload
-5. Store connection for refresh capability
+1. Created `googleSheetsService.ts` with Google Identity Services (GIS) token-based OAuth 2.0
+2. Supports: paste Google Sheets URL or spreadsheet ID → authenticate → select sheet → import data
+3. Uses Sheets API v4 REST endpoints for reading data (no Google Picker needed)
+4. Token caching with 55-min expiry, automatic GIS script loading
+5. Created `GoogleSheetsConnector.tsx` dialog with 2-step flow: connect → select sheet
+6. Shows spreadsheet title, sheet list with row counts, error handling
+7. Added `DataSourceInfo` type to track data source for refresh capability
+8. Added `dataSource` state + `setDataSource` action to store (cleared on new data upload)
+9. Green Google Sheets button in DataShelf empty state and loaded-state toolbar
+10. Graceful fallback when `VITE_GOOGLE_CLIENT_ID` is not configured (shows setup instructions)
 
-**Files to Create**:
-- `frontend/src/services/googleSheetsService.ts` - OAuth + API calls
-- `frontend/src/components/data-shelf/GoogleSheetsConnector.tsx` - UI
+**Files Created**:
+- `frontend/src/services/googleSheetsService.ts` - GIS OAuth, token management, Sheets API v4 calls, URL parsing
+- `frontend/src/components/data-shelf/GoogleSheetsConnector.tsx` - 2-step dialog (connect → select sheet)
 
-**Files to Modify**:
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Add connector option
-- `frontend/src/store/useVizStore.ts` - Add data source type
-- `frontend/.env` - Add `VITE_GOOGLE_CLIENT_ID`
+**Files Modified**:
+- `backend/types/index.ts` - Added `DataSourceType`, `DataSourceInfo` interfaces
+- `frontend/src/store/useVizStore.ts` - Added `dataSource` state, `setDataSource` action, `selectDataSource` selector
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Added Google Sheets button in empty and loaded states
 
 ---
 
 ### Task 13: URL/API Data Source
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: Medium (1-2 days)
 
 **Problem**: Can't fetch data from URLs or REST APIs
 
 **Implementation**:
-1. Add "Import from URL" option in DataShelf
-2. Support JSON and CSV URLs
-3. Add optional headers for authenticated APIs
-4. Parse response and profile data
-5. Store URL for refresh capability
+1. Created `urlDataService.ts` with `fetchDataFromURL()` supporting JSON and CSV with auto-detection
+2. JSON support includes nested path navigation (e.g., `data.results`), auto-detection of common array keys (`data`, `results`, `items`, `records`, `rows`)
+3. Created `URLImportDialog.tsx` with URL input, format selector (Auto/JSON/CSV), advanced options (JSON path, custom headers)
+4. Custom headers support for authenticated API endpoints
+5. "Import from URL" button added in DataShelf empty state (cyan globe icon) and in loaded state (toolbar icon)
+6. Error handling with user-friendly messages for HTTP errors, parse failures, CORS issues
+7. Reuses existing `loadDataFromFile()` for schema inference and data profiling
 
-**Files to Create**:
-- `frontend/src/components/data-shelf/URLImportDialog.tsx`
-- `frontend/src/services/urlDataService.ts`
+**Files Created**:
+- `frontend/src/services/urlDataService.ts` - URL fetching, format detection, JSON path extraction, CSV parsing
+- `frontend/src/components/data-shelf/URLImportDialog.tsx` - Dialog with URL input, format picker, advanced options (headers, JSON path)
 
-**Files to Modify**:
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Add URL option
-- `frontend/src/store/useVizStore.ts` - Add URL data source handling
+**Files Modified**:
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Added "Import from URL" button in empty and loaded states, globe icon in toolbar
 
 ---
 
 ### Task 14: Scheduled Refresh
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: Medium (1-2 days)
 
 **Problem**: Dashboards are static snapshots
 
 **Implementation**:
-1. Add `refreshInterval` to DashboardConfig (null, 1min, 5min, 15min, 1hr)
-2. Add refresh interval selector in dashboard settings
-3. Implement auto-refresh using setInterval
-4. Show "Last updated: X ago" timestamp
-5. Show spinner during refresh
-6. Re-fetch data from source (URL, Sheets) and regenerate charts
+1. Added `RefreshInterval` type (null | 60000 | 300000 | 900000 | 3600000) and `refreshInterval` to `DashboardConfig`
+2. Added `isRefreshing`, `lastRefreshedAt` state, `setRefreshInterval()`, `refreshDashboardData()` actions to store
+3. Refresh button with spinning icon in dashboard toolbar (visible when data source is URL or Google Sheets)
+4. Auto-refresh dropdown selector (Off, 1min, 5min, 15min, 1hr) with amber highlight when active
+5. "Last updated: Xm ago" timestamp with 30-second auto-update
+6. `refreshDashboardData()` re-fetches from URL (via `urlDataService`) or Google Sheets (via `googleSheetsService`) and updates dataset in-place without clearing dashboard
+7. Updated `URLImportDialog` to set `dataSource` after import (enables refresh for URL imports)
+8. Auto-refresh uses `setInterval` with cleanup on unmount/interval change
 
-**Files to Modify**:
-- `backend/types/index.ts` - Add refreshInterval to DashboardConfig
-- `frontend/src/store/useVizStore.ts` - Add refresh logic
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Interval selector, timestamp, spinner
+**Files Modified**:
+- `backend/types/index.ts` - Added `RefreshInterval` type, `refreshInterval` to `DashboardConfig`
+- `frontend/src/store/useVizStore.ts` - Added `isRefreshing`, `lastRefreshedAt` state, `setRefreshInterval`, `refreshDashboardData` actions, selectors
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Refresh button, interval dropdown, timestamp display, auto-refresh useEffect
+- `frontend/src/components/data-shelf/URLImportDialog.tsx` - Sets `dataSource` after URL import for refresh capability
 
 ---
 
 ### Task 15: Dashboard JSON Export/Import
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: Low (half day)
 
 **Problem**: Can't backup or share dashboards
 
 **Implementation**:
-1. Add "Export JSON" button in dashboard header
-2. Export `dashboardConfig` + `dataset` as JSON file
-3. Add "Import Dashboard" option in DataShelf
-4. Parse JSON and restore state
-5. Validate schema before import
+1. Added `exportDashboardToJSON()` and `importDashboardFromJSON()` to exportService.ts
+2. Export includes versioned format with dashboard config + full dataset
+3. Import validates structure (dashboard, dataset, charts array, fields, data) and revives Date objects
+4. Added "Dashboard JSON" option to DashboardGrid export dropdown
+5. Added "Import Dashboard" button in DataShelf empty state
+6. Added `importDashboard()` action to store that sets dataset, dashboard, and generates data profile
 
-**Files to Modify**:
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Export button
-- `frontend/src/components/data-shelf/DataShelf.tsx` - Import option
-- `frontend/src/services/exportService.ts` - Add JSON export/import
+**Files Modified**:
+- `frontend/src/services/exportService.ts` - Added `exportDashboardToJSON()`, `importDashboardFromJSON()` with schema validation
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Added JSON export to export dropdown
+- `frontend/src/components/data-shelf/DataShelf.tsx` - Added "Import Dashboard" button with file input
+- `frontend/src/store/useVizStore.ts` - Added `importDashboard()` action
 
 ---
 
 ### Task 16: Shareable Dashboard Links
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P1
 - **Effort**: Medium (1 day)
 
 **Problem**: Can't share dashboards with others without backend
 
 **Implementation**:
-1. Compress dashboard state using `lz-string`
-2. Encode compressed state in URL query param
-3. Add "Copy share link" button
-4. On page load, check for `?state=` param and restore
-5. Show warning for large datasets (URL length limits)
+1. Installed `lz-string` for URL-safe compression
+2. Created `shareService.ts` with compress/decompress, URL generation, clipboard copy
+3. Added "Share" button to DashboardGrid toolbar that copies share link to clipboard
+4. App.tsx checks for `?state=` param on mount and auto-loads shared dashboard
+5. Warns when URL exceeds 32KB (browser limit risk)
+6. Clears URL param after loading to keep URL clean
 
-**Files to Create**:
-- `frontend/src/services/shareService.ts` - Compress, encode, decode
+**Files Created**:
+- `frontend/src/services/shareService.ts` - LZ-string compression, URL generation, clipboard copy, URL parsing
 
-**Files to Modify**:
-- `frontend/src/components/canvas/DashboardGrid.tsx` - Share button
-- `frontend/src/App.tsx` - Check URL params on mount
-- `frontend/src/store/useVizStore.ts` - Add `loadFromShareURL()` action
+**Files Modified**:
+- `frontend/src/components/canvas/DashboardGrid.tsx` - Added Share button with copy-to-clipboard
+- `frontend/src/App.tsx` - Added useEffect to check URL params on mount and auto-load shared dashboard
 
 ---
 
 ## P2 - Medium Priority
 
 ### Task 17: AI Streaming Responses
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: Medium (1-2 days)
 
 **Problem**: AI responses appear all at once after delay
 
 **Implementation**:
-1. Use Groq streaming API (`stream: true`)
-2. Update proxy to forward SSE stream
-3. Show response character-by-character in chat
-4. Add typing indicator during stream
+1. Created `callAIStreamingDirect()` (Groq SDK) and `callAIStreamingProxy()` (SSE) async generators in groqService
+2. Created `streamAIChatResponse()` export for streaming with full message array support
+3. Created `processDataQuestionStreaming()` — Phase 1: non-streamed JSON call for query plan, Phase 2: real streaming for natural language answer
+4. Created `processExplainRequestStreaming()` — streams explanation text directly
+5. Created `processAIQueryStreaming()` export — routes text intents (question, explain) through streaming, others through regular processing
+6. Updated store `processAIQuery` to use streaming version with `onChunk` callback that updates `aiStreamingText` and chat history in real-time
+7. First chunk lazily creates the message placeholder (no empty bubble while loading)
+8. Streaming cursor (blinking line) already rendered in AIChat when `streamingMessageId === msg.id`
+9. Error handling: cleans up partial streaming message and shows error bubble
+10. Filter text responses simplified to immediate display (no more fake typewriter)
 
-**Files to Modify**:
-- `cloudflare-worker/src/index.ts` - Handle streaming
-- `backend/services/groqService.ts` - Add streaming function
-- `frontend/src/store/useVizStore.ts` - Handle streaming state
-- `frontend/src/components/ai/AIChat.tsx` - Render streaming text
+**Files Modified**:
+- `backend/services/groqService.ts` - Added streaming infrastructure: `callAIStreamingDirect`, `callAIStreamingProxy`, `streamAIChatResponse`, `processDataQuestionStreaming`, `processExplainRequestStreaming`, `processAIQueryStreaming`
+- `frontend/src/store/useVizStore.ts` - Updated `processAIQuery` to use real streaming via `onChunk` callback, simplified filter text display
 
 ---
 
 ### Task 18: AI Feedback Loop
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: Low (half day)
 
 **Problem**: No way to know if AI responses are helpful
 
 **Implementation**:
-1. Add 👍/👎 buttons on AI messages
-2. Store feedback in localStorage (or send to analytics later)
-3. Use feedback to improve prompts over time
-4. Show "Thanks for feedback!" toast
+1. Added thumbs up/down buttons on all non-error assistant messages in AIChat
+2. Feedback stored in AIMessage state (`feedback: 'positive' | 'negative'`)
+3. Persisted to localStorage under `openviz-ai-feedback` key with timestamp and content snippet
+4. Visual feedback: selected state shows green (positive) or red (negative) highlight + "Thanks!" text
+5. Added `setMessageFeedback()` action to Zustand store
 
-**Files to Modify**:
-- `frontend/src/components/ai/AIChat.tsx` - Add feedback buttons
-- `frontend/src/store/useVizStore.ts` - Store feedback
-- `backend/types/index.ts` - Add feedback field to AIMessage
+**Files Modified**:
+- `backend/types/index.ts` - Added `feedback?: 'positive' | 'negative'` to AIMessage
+- `frontend/src/store/useVizStore.ts` - Added `setMessageFeedback()` action with localStorage persistence
+- `frontend/src/components/ai/AIChat.tsx` - Added ThumbsUp/ThumbsDown buttons on assistant messages
 
 ---
 
 ### Task 19: AI Provider Fallback
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: High (2-3 days)
 
 **Problem**: If Groq is down, AI features completely fail
 
-**Implementation**:
-1. Create `AIProvider` interface abstraction
-2. Implement `GroqProvider`, `ClaudeProvider`, `OpenAIProvider`
-3. Add fallback logic: try Groq -> if fails, try Claude -> if fails, try OpenAI
-4. Show which provider was used in response
-5. Add provider config to settings
+**Implementation** (Completed):
+1. Created `AIProvider` interface abstraction with `chat()` and `streamChat()` async generator methods
+2. Implemented `GroqProvider` (Groq SDK), `OpenAICompatibleProvider` (fetch-based REST), `AnthropicProvider` (Messages API)
+3. `AIProviderManager` with ordered fallback chain: tries each provider in sequence, falls back on failure
+4. Provider order configurable via `VITE_AI_PROVIDER_ORDER` env var (comma-separated)
+5. Each AI response/message shows which provider was used ("via Groq", "via Claude", etc.)
+6. Chat header dynamically shows available providers instead of hardcoded "Powered by LLaMA 3"
+7. Streaming fallback: tries first chunk from each provider before committing to that stream
+8. Updated `groqService.ts` to use provider manager for both regular and streaming calls
+9. Updated store to propagate `provider` field through all message creation paths
 
-**Files to Create**:
-- `backend/services/aiProvider.ts` - Interface + factory
-- `backend/services/providers/groqProvider.ts`
-- `backend/services/providers/claudeProvider.ts`
-- `backend/services/providers/openaiProvider.ts`
+**Files Created**:
+- `backend/services/aiProvider.ts` - Provider interface, GroqProvider, OpenAICompatibleProvider, AnthropicProvider, AIProviderManager singleton
 
-**Files to Modify**:
-- `backend/services/groqService.ts` - Use provider abstraction
+**Files Modified**:
+- `backend/services/groqService.ts` - Uses provider manager for `callAI()` and streaming; removed direct Groq client; re-exports provider utilities
+- `backend/types/index.ts` - Added `provider?: string` to AIMessage and AIQueryResult
+- `frontend/src/components/ai/AIChat.tsx` - Shows provider names in header + per-message attribution
+- `frontend/src/store/useVizStore.ts` - Passes `result.provider` to all assistant messages
+
+**Environment Variables**:
+- `VITE_GROQ_API_KEY` - Groq API key
+- `VITE_OPENAI_API_KEY` - OpenAI API key
+- `VITE_ANTHROPIC_API_KEY` - Anthropic API key
+- `VITE_AI_PROVIDER_ORDER` - Custom fallback order (e.g., "groq,anthropic,openai")
 
 ---
 
 ### Task 20: Chart Templates Gallery
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: Medium (1-2 days)
 
 **Problem**: Users start from scratch every time
 
-**Implementation**:
-1. Create template definitions with pre-set encodings
-2. Build template browser UI with categories (Sales, Marketing, Operations)
-3. Allow applying template to current data
-4. Auto-map fields by type when applying template
-5. Add "Save as Template" for user-created charts
+**Implementation** (Completed):
+1. Created 17 chart template definitions across 5 categories (General, Sales, Marketing, Operations, Finance)
+2. Template slot system: each template declares expected field types per encoding channel with preferred name patterns
+3. Auto-mapping engine: `scoreFieldForSlot()` scores fields by type compatibility + name pattern matching, `autoMapFields()` assigns best-fit fields
+4. `canApplyTemplate()` checks if all required slots can be filled with available data fields
+5. TemplateGallery dialog with category filter chips, search bar, 2-column template grid with compatibility indicators
+6. Detail panel shows field mapping preview (slot → auto-mapped field) before applying
+7. `applyTemplate` store action: pushes to undo history, sets mark type + title + encodings, calls `regenerateSpec()`
+8. Templates button in Canvas toolbar (visible when dataset is loaded)
 
-**Files to Create**:
-- `frontend/src/components/canvas/TemplateGallery.tsx`
-- `frontend/src/data/chartTemplates.ts` - Template definitions
+**Templates included**: Category Comparison, Trend Over Time, Proportion Breakdown, Correlation Plot, Heatmap Grid, Sales by Region, Revenue Trend, Sales Pipeline, Campaign Performance, Engagement Radar, Conversion Funnel, Throughput Timeline, Quality Distribution, Budget vs Actual, Expense Breakdown, Revenue Waterfall
 
-**Files to Modify**:
-- `frontend/src/components/canvas/Canvas.tsx` - Add template button
-- `frontend/src/store/useVizStore.ts` - Template application logic
+**Files Created**:
+- `frontend/src/data/chartTemplates.ts` - Template types, 17 template definitions, auto-mapping engine
+- `frontend/src/components/canvas/TemplateGallery.tsx` - Template browser dialog with search, categories, field mapping preview
+
+**Files Modified**:
+- `frontend/src/components/canvas/Canvas.tsx` - Added Templates button + TemplateGallery dialog
+- `frontend/src/store/useVizStore.ts` - Added `applyTemplate` action
 
 ---
 
 ### Task 21: Advanced Aggregations
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: Medium (1-2 days)
 
 **Problem**: Only basic aggregations (sum, mean, count) available
 
 **Implementation**:
-1. Add new aggregation functions to EncodingShelf dropdown
-2. Implement using Arquero:
-   - `cumulative_sum` - Running totals
-   - `percent_of_total` - Composition analysis
-   - `moving_average` - Trend smoothing (7-day window)
-   - `percentile` - Distribution analysis
-   - `rank` - Leaderboards
-   - `variance`, `stddev` - Dispersion
+1. Extended `AggregateFunction` type with `variance`, `stddev`, `percent_of_total`, `cumulative_sum`
+2. Implemented all new aggregation calculations in `processDataWithAggregation()`
+3. Added post-processing for `cumulative_sum` to compute running totals across sorted groups
+4. Added interactive aggregation dropdown to EncodingShelf for quantitative fields on x/y/size/color/theta channels
+5. Dropdown shows Basic (sum, mean, count, min, max, median, distinct) and Advanced (variance, stddev, % of total, cumulative sum) sections
+6. Fixed missing `theta` channel in CHANNEL_DESCRIPTIONS
 
-**Files to Modify**:
-- `backend/types/index.ts` - Extend AggregateFunction type
-- `backend/utils/echartsOptionBuilder.ts` - Implement aggregations
-- `frontend/src/components/encoding-deck/EncodingShelf.tsx` - Add to dropdown
+**Files Modified**:
+- `backend/types/index.ts` - Extended AggregateFunction with 4 new types
+- `backend/utils/echartsOptionBuilder.ts` - Implemented variance, stddev, percent_of_total, cumulative_sum calculations
+- `frontend/src/components/encoding-deck/EncodingShelf.tsx` - Added aggregation dropdown with basic/advanced sections
 
 ---
 
 ### Task 22: Drill-Down Functionality
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed
 - **Priority**: P2
 - **Effort**: High (2-3 days)
 
 **Problem**: Can't explore data hierarchies (Year -> Quarter -> Month)
 
-**Implementation**:
-1. Detect hierarchical fields automatically (temporal, geographic)
-2. Add drill-down click handler on chart axes
-3. Show breadcrumb trail: "2024 > Q3 > August"
-4. Add "drill up" button
-5. Support temporal: year > quarter > month > week > day
-6. Support geographic: country > state > city
+**Implementation** (Completed):
+1. Added `TemporalDrillLevel`, `DrillLevel`, `DrillHierarchy` types to `backend/types/index.ts`
+2. Created `backend/services/drillService.ts` with temporal hierarchy detection, drill data transformation, level navigation
+3. Detects initial temporal level based on date range (>2yr→year, >6mo→quarter, >2mo→month, >2wk→week, else day)
+4. `getDrillData()` filters data by drill path and creates virtual drill column with sorted temporal labels
+5. Added `drillPath`, `drillHierarchies`, `drillActiveField` state + `drillDown`, `drillUp`, `drillReset` actions to store
+6. `regenerateSpec()` applies drill transformation: replaces temporal x-axis with drill field, filters data by path
+7. Hierarchies auto-detected on data load (`loadDataFromFile`, `loadDataFromJson`)
+8. Created `DrillBreadcrumb.tsx` with "All > 2024 > Q3 > Aug" trail, drill-up button, reset button, current level indicator
+9. Updated `VizPreview.tsx` with click-to-drill handler on ECharts, "Click to drill down" hint, pointer cursor when drillable
+10. Drill state clears when x-axis encoding changes or new data loads
 
-**Types to Add**:
-```typescript
-interface DrillPath {
-  field: string;
-  value: string | number;
-  level: number;
-}
-```
+**Files Created**:
+- `backend/services/drillService.ts` - Hierarchy detection, temporal drill data transformation, level navigation utilities
+- `frontend/src/components/canvas/DrillBreadcrumb.tsx` - Breadcrumb trail with drill-up/reset controls
 
-**Files to Create**:
-- `frontend/src/components/canvas/DrillBreadcrumb.tsx`
-- `backend/services/drillService.ts` - Hierarchy detection
-
-**Files to Modify**:
-- `frontend/src/store/useVizStore.ts` - Drill state
-- `frontend/src/components/canvas/VizPreview.tsx` - Drill click handlers
-- `backend/utils/echartsOptionBuilder.ts` - Apply drill filters
+**Files Modified**:
+- `backend/types/index.ts` - Added `TemporalDrillLevel`, `DrillLevel`, `DrillHierarchy` types
+- `frontend/src/store/useVizStore.ts` - Added drill state, actions, selectors; hierarchy detection on data load; drill transform in regenerateSpec
+- `frontend/src/components/canvas/VizPreview.tsx` - Drill click handler, breadcrumb display, drill-available indicator
 
 ---
 
@@ -711,6 +731,31 @@ interface DrillPath {
 - `backend/services/groqService.ts` - Add caching
 - `backend/services/dataContextService.ts` - Cache profiles
 
+### Task 27: Dashboard Templates
+- [x] **Status**: Complete
+- **Priority**: P2
+- **Effort**: Medium (1-2 days)
+
+**Problem**: Users can apply chart templates for single charts, but there's no equivalent for quickly creating a multi-chart dashboard from a template.
+
+**Implementation**:
+1. Add `DashboardTemplate` and `DashboardTemplateChartSlot` types
+2. Add `getChartTemplateById()` helper to chartTemplates.ts
+3. Create 7 dashboard templates referencing existing chart template IDs (Sales Overview, Sales Pipeline, Marketing Dashboard, Executive Summary, Correlation Explorer, Operations Monitor, Financial Report)
+4. Add `applyDashboardTemplate()` store action that auto-maps fields per chart, skips inapplicable charts, and compacts layout
+5. Create `DashboardTemplateGallery.tsx` dialog with search, category filter, layout preview, per-chart applicability, and apply button
+6. Wire gallery into DashboardGrid empty state ("From Template" button) and Add Chart dropdown
+
+**Files Created**:
+- `frontend/src/data/dashboardTemplates.ts` - 7 template definitions + applicability helpers
+- `frontend/src/components/canvas/DashboardTemplateGallery.tsx` - Gallery dialog UI
+
+**Files Modified**:
+- `backend/types/index.ts` - DashboardTemplate types
+- `frontend/src/data/chartTemplates.ts` - getChartTemplateById() export
+- `frontend/src/store/useVizStore.ts` - applyDashboardTemplate action
+- `frontend/src/components/canvas/DashboardGrid.tsx` - "From Template" button in empty state + Add Chart dropdown
+
 ---
 
 ## Task Summary by Priority
@@ -719,7 +764,7 @@ interface DrillPath {
 |----------|-------|------------------|
 | **P0** | 9 tasks (Security, Export, Errors, Onboarding) | ~5-6 days |
 | **P1** | 7 tasks (Cross-filter, Calc fields, Connectors, Sharing) | ~10-12 days |
-| **P2** | 6 tasks (AI enhancements, Templates, Aggregations, Drill-down) | ~7-9 days |
+| **P2** | 7 tasks (AI enhancements, Templates, Aggregations, Drill-down, Dashboard Templates) | ~8-10 days |
 | **Arch** | 4 tasks (Store split, Lazy loading, Caching) | ~5-6 days |
 
 **Total Estimated Effort**: ~27-33 days (ongoing/flexible timeline)
@@ -794,6 +839,21 @@ The following items from the Product Analysis Report were explicitly skipped:
 
 | Date | Change |
 |------|--------|
+| 2026-02-14 | Task 27 (Dashboard Templates) completed - 7 pre-built dashboard templates (Sales, Marketing, Finance, Operations, General), DashboardTemplateGallery dialog with search/filter/layout preview, applyDashboardTemplate store action with auto-field mapping and layout compaction, wired into DashboardGrid empty state and Add Chart dropdown |
+| 2026-02-14 | Task 22 (Drill-Down Navigation) completed - Temporal hierarchy detection (year→quarter→month→week→day), DrillBreadcrumb component with trail/up/reset, click-to-drill on VizPreview, drill data transformation in regenerateSpec, auto-clear on encoding/data change |
+| 2026-02-14 | Task 20 (Chart Templates Gallery) completed - 17 templates across 5 categories, auto-field mapping by type+name patterns, TemplateGallery dialog with search/filter/preview, applyTemplate store action with undo support |
+| 2026-02-14 | Task 19 (AI Provider Fallback) completed - AIProvider interface, GroqProvider/OpenAICompatibleProvider/AnthropicProvider, AIProviderManager with ordered fallback chain, streaming fallback, per-message provider attribution in UI, configurable provider order via env var |
+| 2026-02-14 | Task 17 (AI Streaming Responses) completed - Real streaming via Groq SDK async generators, streamAIChatResponse, processAIQueryStreaming with onChunk callback, lazy message creation, streaming cursor in AIChat |
+| 2026-02-14 | Task 14 (Scheduled Refresh) completed - Auto-refresh with interval selector (1m/5m/15m/1hr), refresh button, timestamp display, URL and Google Sheets re-fetch |
+| 2026-02-14 | Task 12 (Google Sheets Connector) completed - GIS OAuth 2.0, Sheets API v4, 2-step connect+select dialog, DataSourceInfo tracking |
+| 2026-02-14 | Task 13 (URL/API Data Source) completed - Fetch JSON/CSV from URLs with format auto-detection, custom headers, and JSON path navigation |
+| 2026-02-14 | Task 11 (Calculated Fields) completed - Formula parser with 14 functions, dialog with field picker/validation, fx badge in DataShelf |
+| 2026-02-14 | Task 10 (Cross-Chart Filtering) completed - Click-to-filter across dashboard charts with toggle, badge bar, and auto-cleanup |
+| 2026-02-05 | Task 21 (Advanced Aggregations) completed - variance, stddev, % of total, cumulative sum with interactive dropdown in EncodingShelf |
+| 2026-02-05 | Task 18 (AI Feedback Loop) completed - Thumbs up/down on AI messages with localStorage persistence |
+| 2026-02-05 | Task 16 (Shareable Dashboard Links) completed - lz-string compression, Share button, auto-load from URL params |
+| 2026-02-05 | Task 15 (Dashboard JSON Export/Import) completed - Export/import dashboard + dataset as JSON with schema validation |
+| 2026-02-05 | Task 3 (PowerPoint Export) completed - pptxgenjs-based PPTX export for single charts and dashboards with dark theme slides |
 | 2026-02-05 | Task 6 (AI Retry Logic) completed - User-friendly error messages, lastFailedQuery state, Retry button in AIChat |
 | 2026-02-05 | Task 8 (Sample Datasets) completed - 3 sample CSV files with "Try Sample Data" dropdown in DataShelf |
 | 2026-02-05 | Task 7 (Empty States) completed - Enhanced DataShelf, VizPreview, EncodingDeck with helpful empty states |

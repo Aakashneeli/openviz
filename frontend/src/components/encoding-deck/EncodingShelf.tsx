@@ -1,11 +1,34 @@
 import { useDroppable } from '@dnd-kit/core';
-import { X } from 'lucide-react'; // Added icon for nested feel
+import { X, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator,
+    DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { useVizStore, selectEncodingByChannel } from '@/store/useVizStore';
 import { cn } from '@/lib/utils';
-import type { EncodingChannel } from '@backend/types';
+import type { EncodingChannel, AggregateFunction } from '@backend/types';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const AGGREGATION_OPTIONS: { value: AggregateFunction | undefined; label: string; group: 'basic' | 'advanced' }[] = [
+    { value: undefined, label: 'None', group: 'basic' },
+    { value: 'sum', label: 'Sum', group: 'basic' },
+    { value: 'mean', label: 'Mean', group: 'basic' },
+    { value: 'count', label: 'Count', group: 'basic' },
+    { value: 'min', label: 'Min', group: 'basic' },
+    { value: 'max', label: 'Max', group: 'basic' },
+    { value: 'median', label: 'Median', group: 'basic' },
+    { value: 'distinct', label: 'Distinct', group: 'basic' },
+    { value: 'variance', label: 'Variance', group: 'advanced' },
+    { value: 'stddev', label: 'Std Dev', group: 'advanced' },
+    { value: 'percent_of_total', label: '% of Total', group: 'advanced' },
+    { value: 'cumulative_sum', label: 'Cumulative Sum', group: 'advanced' },
+];
 
 // Descriptions for encoding channels
 const CHANNEL_DESCRIPTIONS: Record<EncodingChannel, string> = {
@@ -14,6 +37,7 @@ const CHANNEL_DESCRIPTIONS: Record<EncodingChannel, string> = {
     color: 'Color encoding - distinguish categories or show intensity',
     size: 'Size encoding - show magnitude differences',
     shape: 'Shape encoding - distinguish categories (scatter only)',
+    theta: 'Angle encoding - for pie/donut chart values',
     tooltip: 'Tooltip content - shown on hover',
     row: 'Row facets - split chart into horizontal rows',
     column: 'Column facets - split chart into vertical columns',
@@ -26,7 +50,7 @@ interface EncodingShelfProps {
 
 export function EncodingShelf({ channel, label }: EncodingShelfProps) {
     const encoding = useVizStore(selectEncodingByChannel(channel));
-    const { removeFromShelf } = useVizStore();
+    const { removeFromShelf, updateShelfConfig } = useVizStore();
     const isDragging = useVizStore((s) => s.isDragging);
     const { isOver, setNodeRef } = useDroppable({ id: channel });
 
@@ -92,7 +116,47 @@ export function EncodingShelf({ channel, label }: EncodingShelfProps) {
                                 {encoding.field.name}
                             </span>
 
-                            {encoding.aggregate && (
+                            {/* Aggregation dropdown - show for quantitative fields on y/size/color channels */}
+                            {encoding.field.type === 'quantitative' && ['x', 'y', 'size', 'color', 'theta'].includes(channel) && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button className={cn(
+                                            "flex items-center gap-0.5 px-1.5 py-0.5 rounded-[4px] text-[9px] uppercase font-bold tracking-wider border transition-colors",
+                                            encoding.aggregate
+                                                ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/30"
+                                                : "bg-white/5 text-slate-500 border-white/10 hover:bg-white/10 hover:text-slate-300"
+                                        )}>
+                                            {encoding.aggregate || 'agg'}
+                                            <ChevronDown className="w-2 h-2" />
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-36">
+                                        <DropdownMenuLabel className="text-[10px] text-muted-foreground">Basic</DropdownMenuLabel>
+                                        {AGGREGATION_OPTIONS.filter(o => o.group === 'basic').map(opt => (
+                                            <DropdownMenuItem
+                                                key={opt.label}
+                                                onClick={() => updateShelfConfig(channel, { aggregate: opt.value })}
+                                                className={cn("text-xs", encoding.aggregate === opt.value && "text-indigo-400 font-semibold")}
+                                            >
+                                                {opt.label}
+                                            </DropdownMenuItem>
+                                        ))}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuLabel className="text-[10px] text-muted-foreground">Advanced</DropdownMenuLabel>
+                                        {AGGREGATION_OPTIONS.filter(o => o.group === 'advanced').map(opt => (
+                                            <DropdownMenuItem
+                                                key={opt.label}
+                                                onClick={() => updateShelfConfig(channel, { aggregate: opt.value })}
+                                                className={cn("text-xs", encoding.aggregate === opt.value && "text-indigo-400 font-semibold")}
+                                            >
+                                                {opt.label}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
+                            {/* Show static badge for non-quantitative fields with an aggregate */}
+                            {encoding.aggregate && (encoding.field.type !== 'quantitative' || !['x', 'y', 'size', 'color', 'theta'].includes(channel)) && (
                                 <span className="px-1.5 py-0.5 rounded-[4px] bg-indigo-500/20 text-[9px] text-indigo-300 uppercase font-bold tracking-wider border border-indigo-500/30">
                                     {encoding.aggregate}
                                 </span>
