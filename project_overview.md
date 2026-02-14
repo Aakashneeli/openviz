@@ -3,7 +3,7 @@
 > **System Memory Document**
 > *This document serves as the primary source of truth for the OpenViz project. It details the architecture, feature set, AI integration, and development standards. AI agents should read this file to understand the context before making changes.*
 >
-> **Last Updated**: January 28, 2026
+> **Last Updated**: February 15, 2026
 
 ---
 
@@ -157,32 +157,37 @@ Instead of writing code, users drag fields from the **Data Shelf** to the **Enco
 OpenViz uses a **Context-Aware RAG** (Retrieval-Augmented Generation) approach, optimized for small data contexts without a vector DB.
 
 ### 4.1. The AI Service (`groqService.ts`)
-We use **Groq** for ultra-low latency inference, crucial for the "real-time" feel.
+We use **Groq** for ultra-low latency inference, crucial for the "real-time" feel. Supports multi-provider fallback (Groq, OpenAI, Anthropic) via `AIProviderManager`.
 
 **Configuration:**
 - **Model**: Llama 4 Maverick 17B (`meta-llama/llama-4-maverick-17b-128e-instruct`)
 - **API Key**: `VITE_GROQ_API_KEY` (environment variable)
+- **Provider Fallback**: `VITE_AI_PROVIDER_ORDER` (optional, e.g., "groq,anthropic,openai")
 
 **Core Functions:**
 | Function | Purpose |
 |----------|---------|
-| `detectIntent(query, ...)` | LLM-based intent intent classification with **reasoning** |
-| `processAIQuery(...)` | Main entry point for all AI queries |
-| `processDataQuestion(...)` | Q&A with Arquero stats + **Available Chart/Dashboard Context** |
-| `processChartRequest(...)` | Single chart generation with **Fuzzy Field Matching** & **Validation** |
-| `processModifyRequest(...)` | Contextual chart modification handling 7 types of visual changes |
-| `processDashboardRequest(...)` | Multi-chart dashboard generation |
-| `processModifyDashboardRequest(...)` | **ENHANCED** Bulk operations with **Duplicate Avoidance** |
-| `processExplainRequest(...)` | "Why?" questions with analysis |
+| `detectIntent(query, ...)` | LLM-based intent classification with **reasoning** and **disambiguation rules** |
+| `processAIQuery(...)` | Main entry point — routes intents, intercepts delete requests |
+| `processAIQueryStreaming(...)` | Streaming version — text intents stream via SSE, others fall back to regular |
+| `processDataQuestion(...)` | Q&A with Arquero stats, field list, few-shot examples, `json_object` response format |
+| `processChartRequest(...)` | Chart generation with **few-shot examples**, vague query defaults, field name enforcement |
+| `processModifyRequest(...)` | Chart modification with **preservation rules**, low temperature (0.15), few-shot examples |
+| `processDashboardRequest(...)` | Dashboard generation with chart type guide, design rules, retry context hints |
+| `processModifyDashboardRequest(...)` | Add/remove/replace charts, **direct delete-by-ID** for focused charts |
+| `processFilterRequest(...)` | Parse natural language filter conditions |
+| `processCompareRequest(...)` | Compare two groups/periods with grouped bar chart output |
+| `processForecastRequest(...)` | Time-series forecasting with linear regression |
+| `processExplainRequest(...)` | "Why?" questions with streaming analysis |
+| `findFieldFuzzy(name, fields)` | **Shared** scored field matching (7-tier: exact→normalized→startsWith→word→substring) |
 | `generateDataInsights(...)` | Heuristic + AI insight generation |
 | `generateChartSummary(...)` | Generate AI summary for a chart |
-| `generateDashboardSummary(...)` | Generate AI summary for dashboard |
 | `formatChartContext(...)` | Helper to describe current chart to AI |
 | `formatDashboardContext(...)` | Helper to describe entire dashboard to AI |
-| `formatFocusedChartContext(...)` | **NEW** Detailed context for a specific focused chart in a dashboard |
+| `formatFocusedChartContext(...)` | Detailed context for a specific focused chart in a dashboard |
 
 ### 4.2. Intent Classification
-The AI detects user intent to route queries appropriately. All responses now include **reasoning** for transparency.
+The AI detects user intent to route queries appropriately. All responses include **reasoning** for transparency. Intent detection uses LLM classification with explicit **disambiguation rules** and a **fallback regex** pattern matcher.
 
 | Intent | Description | Example |
 |--------|-------------|---------|
@@ -190,42 +195,66 @@ The AI detects user intent to route queries appropriately. All responses now inc
 | `chart` | Create single chart | "Show sales by region" |
 | `dashboard` | Create multi-chart view | "Give me a sales overview dashboard" |
 | `modify` | Edit current chart (Size, Color, Type, etc.) | "Make it bigger", "Change colors to blue" |
-| `modify_dashboard` | Edit current dashboard (Single/Bulk) | "Remove all charts", "Add a pie chart" |
+| `modify_dashboard` | Edit current dashboard (Add/Remove/Replace) | "Remove all charts", "Add a pie chart", "Delete this chart" |
 | `explain` | Analysis request | "Why are sales down in March?" |
-| `unknown` | Fallback | General queries |
+| `filter` | Filter data subset | "Only show sales > 1000", "Filter to USA" |
+| `compare` | Compare groups/periods | "Compare Q1 vs Q2", "East vs West sales" |
+| `forecast` | Predictions/projections | "Forecast next 6 months" |
 
-### 4.3. Context Injection Strategy
-To make the AI "smart" about the user's specific file, we inject a high-density **Data Profile** into the system prompt:
-```typescript
-{
-    "rowCount": 1000,
-    "columnCount": 5,
-    "fields": [
-        { 
-            "name": "Revenue", 
-            "type": "quantitative", 
-            "stats": { "min": 100, "max": 5000, "mean": 2500 } 
-        },
-        { 
-            "name": "Region", 
-            "type": "nominal", 
-            "uniqueCount": 4,
-            "topValues": [{"value": "North", "count": 400}] 
-        }
-    ],
-    "generatedAt": "2026-01-04T10:00:00Z"
-}
+**Disambiguation Rules** (applied in order):
+1. "delete"/"remove" + dashboard exists → always `modify_dashboard`
+2. Specific chart type name without "make it"/"change" → always `chart`
+3. "show me"/"visualize" + field refs → `chart` (not question)
+4. "What is"/"how much"/"average" → `question` (not chart)
+5. No current chart → never `modify`; no dashboard → never `modify_dashboard`
+6. "compare"/"vs" → prefer `compare`; "filter"/"where" → prefer `filter`
+
+**Delete Chart Handling:**
+- **Dashboard mode**: Delete requests on focused charts are intercepted before intent routing, directly removing the chart by ID (no LLM call). Falls back to LLM-based `modify_dashboard` with remove action for index-based deletion.
+- **Single chart mode**: Delete requests return `deleteChart: true` flag, which the store handles by calling `resetChart()` with undo support.
+
+### 4.3. Field Matching (`findFieldFuzzy`)
+All AI handlers use a shared scored field matching utility instead of first-match-wins:
+| Score | Match Type | Example |
+|-------|-----------|---------|
+| 100 | Exact (case-insensitive) | "Revenue" = "revenue" |
+| 90 | Normalized (ignore separators) | "sales amount" = "Sales_Amount" |
+| 80 | Field starts with input | "Rev" → "Revenue" |
+| 75 | Input starts with field | "Revenue Total" → "Revenue" |
+| 70 | Whole word in field | "sales" → "Total_Sales_Amount" |
+| 60 | Substring match | "sale" → "Sales_Amount" |
+| 50 | Reverse substring | "Sales_Amount" → "sales" |
+| 30-50 | Word-level partial | Scored by proportion of matching words |
+
+### 4.4. Context Injection Strategy
+To make the AI "smart" about the user's specific file, we inject a high-density **Data Profile** into the system prompt. The `formatProfileForLLM()` function generates a structured context string with:
+- **Field type summary**: Groups fields by type (Numeric, Categorical, Temporal) for quick LLM orientation
+- **Field details**: Stats for quantitative fields, date ranges for temporal, example values (up to 5) for categorical
+- **Data quality notes**: Cleaning suggestions when applicable
+
+```
+Dataset: 1000 rows, 5 columns
+
+Field Type Summary:
+  Numeric: Revenue, Units
+  Categorical: Region, Category
+  Temporal: Date
+
+Field Details:
+- "Revenue" (quantitative): min=100, max=5000, mean=2500.00
+- "Region" (nominal): 4 unique values (e.g., North, South, East, West, Central)
+- "Date" (temporal): 2024-01-01 to 2024-12-31
 ```
 *Note: We DO NOT send the entire dataset to the LLM to preserve privacy and token limits. We only send the metadata/statistics.*
 
-### 4.4. Data Context Service (`dataContextService.ts`)
+### 4.5. Data Context Service (`dataContextService.ts`)
 | Function | Purpose |
 |----------|---------|
 | `generateDataProfile(data, fields)` | Create comprehensive profile for AI |
 | `generateFieldProfile(field, table, data)` | Stats for individual field |
 | `detectDataIssues(fields, data)` | Find data quality problems |
 | `executeDataQuery(data, query)` | Run structured queries with Arquero |
-| `formatProfileForLLM(profile)` | Format profile as context string |
+| `formatProfileForLLM(profile)` | Format profile with field type grouping and example values |
 
 ---
 
@@ -303,7 +332,7 @@ To make the AI "smart" about the user's specific file, we inject a high-density 
 
 ## 6. Type System Summary
 
-### Core Types (`types/index.ts` - 395 lines)
+### Core Types (`types/index.ts` - 636 lines)
 ```typescript
 // Field Classification
 type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
@@ -311,16 +340,17 @@ type FieldType = 'nominal' | 'quantitative' | 'temporal' | 'ordinal';
 // Semantic Type Classification (Phase 1)
 type SemanticType = 'email' | 'phone' | 'url' | 'currency' | 'percentage' | 'countryCode' | 'zipCode' | 'generic';
 
-// Encoding Channels
-type EncodingChannel = 'x' | 'y' | 'color' | 'size' | 'shape' | 'tooltip' | 'row' | 'column';
+// Encoding Channels (includes theta for pie/donut)
+type EncodingChannel = 'x' | 'y' | 'theta' | 'color' | 'size' | 'shape' | 'tooltip' | 'row' | 'column';
 
 // Chart Marks (Expanded for ECharts)
 type MarkType = 'bar' | 'line' | 'point' | 'area' | 'arc' | 'boxplot' | 'candlestick' | 'histogram'
   | 'treemap' | 'sunburst' | 'tree' | 'sankey' | 'graph' | 'radar' | 'heatmap' | 'funnel' | 'gauge'
   | 'parallel' | 'waterfall' | 'calendar' | 'pictorialBar' | 'rect' | 'rule' | 'text' | 'tick' | 'auto';
 
-// AI Intent Classification
-type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard' | 'explain' | 'unknown';
+// AI Intent Classification (expanded with filter, compare, forecast)
+type AIIntent = 'question' | 'chart' | 'dashboard' | 'modify' | 'modify_dashboard'
+  | 'explain' | 'filter' | 'compare' | 'forecast' | 'unknown';
 
 // Annotation Types (Phase 2.1 - Smart Annotations)
 interface Annotation { type: 'outlier' | 'max' | 'min' | 'trend', dataIndex, value, label, coord? }
@@ -330,11 +360,12 @@ interface FieldInfo { id, name, type, semanticType?, stats, sparklineData }
 interface Dataset { id, name, fields, rowCount, data, uploadedAt }
 interface ShelfPlacement { id, field, channel, aggregate?, bin?, timeUnit?, sort? }
 interface ChartConfig { id, title?, mark, encodings, width, height, interactive?, fixedColor?, annotations? }
-interface DashboardConfig { id, title?, charts, layout, createdAt }
+interface DashboardConfig { id, title?, charts, layout, createdAt, refreshInterval? }
 interface SavedDashboard { id, config: DashboardConfig, updatedAt: Date }  // localStorage wrapper
 interface DataProfile { rowCount, columnCount, fields, summary?, cleaningSuggestions?, generatedAt }
-interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error? }
-interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, echartsOption? }
+interface AIQueryResult { query, intent, chartConfig?, dashboardConfig?, textAnswer?, insights?, error?,
+  filterSpec?, comparisonSpec?, comparisonResult?, forecastResult?, deleteChart?, provider? }
+interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, echartsOption?, feedback?, provider? }
 ```
 
 ---
@@ -544,6 +575,28 @@ interface AIMessage { id, role, content, timestamp, resultType?, chartConfig?, e
 - ✅ Clear visual indicator of which chart the AI is working on
 - ✅ Smart suggestions that reference actual chart fields and titles
 
+#### ✅ 2.9 AI Chat Accuracy & Robustness (Completed Feb 15, 2026)
+**Problem**: AI frequently misclassified intent, picked wrong fields, and produced inaccurate charts. Root causes: weak disambiguation, no few-shot examples, first-match-wins field matching, and a minimal dashboard prompt.
+
+**Solution**: Comprehensive overhaul of all AI prompts, field matching, intent detection, and error handling.
+
+**Implementation Details:**
+- **Scored Field Matching (`findFieldFuzzy`)**: Replaced first-match-wins algorithm with 7-tier scoring system (exact=100, normalized=90, startsWith=80, inputStartsWith=75, wholeWord=70, contains=60, reverseContains=50, wordPartial=30-50). Shared utility used by all handlers.
+- **Intent Disambiguation Rules**: Added explicit priority rules in LLM prompt to resolve ambiguous queries. Dashboard-aware delete detection. Previous intent hints from chat history. Expanded history window from 3→5 messages.
+- **Few-Shot Examples**: Added 3 input→output examples each to chart creation, dashboard creation, modify request, and data question prompts.
+- **Dashboard Prompt Upgrade**: Replaced ~400-char prompt with comprehensive version including field type summary, chart type guide, design rules, aggregation rules.
+- **Modify Preservation Rules**: Added PATCH behavior instructions, few-shot examples showing minimal changes, reduced temperature from 0.3→0.15.
+- **Data Question Fixes**: Renamed unused `_fields` parameter, added field list to prompt, added `response_format: { type: 'json_object' }`.
+- **Enhanced LLM Context**: `formatProfileForLLM()` now groups fields by type (Numeric/Categorical/Temporal) and always shows example values for categorical fields.
+- **Delete Chart Handling**: Dashboard mode uses direct delete-by-ID for focused charts. Single chart mode returns `deleteChart: true` flag handled by store's `resetChart()` with undo support.
+- **Actionable Error Messages**: Added specific hints for JSON parse errors, chart creation failures, and modify failures.
+
+**Files Modified:**
+- ✅ `backend/services/groqService.ts` (+800 lines) - All prompts, field matching, intent detection, delete handling
+- ✅ `backend/services/dataContextService.ts` (+20 lines) - Enhanced `formatProfileForLLM()` with field grouping
+- ✅ `backend/types/index.ts` (+2 lines) - Added `deleteChart` flag to `AIQueryResult`
+- ✅ `frontend/src/store/useVizStore.ts` (+15 lines) - `deleteChart` handler, improved error messages
+
 ### 🔮 Phase 3: Advanced Analytics (Planned)
 - **3.1 Client-Side Forecasting**: Exponential smoothing / linear regression in browser.
 - **3.2 "What-If" Sliders**: Parameterized dashboard controls.
@@ -585,13 +638,13 @@ npm run lint     # Run ESLint
 ### File Size Reference
 | File | Lines | Purpose |
 |------|-------|---------|
-| `groqService.ts` | ~2,040 | AI/LLM integration (annotations + focused chart context) |
+| `groqService.ts` | ~3,000 | AI/LLM integration (scored field matching, few-shot prompts, delete handling, disambiguation) |
 | `echartsOptionBuilder.ts` | 1,193 | ECharts option generation (19 chart types + annotations) |
-| `useVizStore.ts` | ~1,320 | State management (dashboard persistence, AI chat focus, lifecycle) |
+| `useVizStore.ts` | ~1,350 | State management (dashboard persistence, AI chat focus, deleteChart handler) |
 | `schemaInference.ts` | 456 | Type detection + semantic classification |
-| `types/index.ts` | ~405 | Type definitions (SavedDashboard, Annotation, etc.) |
+| `types/index.ts` | ~636 | Type definitions (expanded AIQueryResult, AIIntent, filter/compare/forecast types) |
 | `AIChat.tsx` | ~350 | AI chat with per-chart focus, context-aware UI |
-| `dataContextService.ts` | 291 | Data profiling with Arquero |
+| `dataContextService.ts` | ~310 | Data profiling with Arquero, enhanced formatProfileForLLM |
 | `DashboardList.tsx` | ~215 | Dashboard browser panel with animations |
 | `annotationService.ts` | 210 | Statistical analysis for annotations |
 | `DashboardGrid.tsx` | ~580 | Multi-chart dashboard with per-chart AI button |

@@ -60,10 +60,10 @@ This document outlines all implementation tasks for OpenViz based on the Product
 | Priority | Total | Done | In Progress |
 |----------|-------|------|-------------|
 | P0 - Critical | 9 | 9 | 0 |
-| P1 - High | 8 | 8 | 0 |
+| P1 - High | 9 | 9 | 0 |
 | P2 - Medium | 6 | 6 | 0 |
 | Architecture | 4 | 0 | 0 |
-| **Total** | **27** | **23** | **0** |
+| **Total** | **28** | **24** | **0** |
 
 ---
 
@@ -767,17 +767,20 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 **Implementation**:
 1. **Scored Field Matching** — Replaced first-match-wins `findField()` with shared `findFieldFuzzy()` utility using 7-tier scoring: exact (100), normalized ignoring separators (90), startsWith (80), input-starts-with-field (75), whole-word boundary (70), contains substring (60), reverse contains (50), word-level partial (30-50). Replaced all 4 local findField implementations.
 2. **Enhanced LLM Context** — Added field type grouping summary (Numeric/Categorical/Temporal) at top of `formatProfileForLLM()`. Always shows example values for categorical fields (up to 5 top values) for better field name matching.
-3. **Improved Intent Detection** — Added DISAMBIGUATION RULES section with 8 explicit priority rules. Added previous intent hint from last assistant message. Expanded chat history window from 3→5 messages. Improved fallback modify regex to catch mid-sentence patterns (bigger, smaller, resize, recolor, sort by).
+3. **Improved Intent Detection** — Added DISAMBIGUATION RULES section with 9 explicit priority rules (including delete→modify_dashboard). Added previous intent hint from last assistant message. Expanded chat history window from 3→5 messages. Improved fallback modify regex to catch mid-sentence patterns (bigger, smaller, resize, recolor, sort by).
 4. **Improved Chart Creation Prompt** — Fixed system message from generic "JSON generator" to "expert data visualization assistant". Added 3 few-shot examples (bar, line, histogram). Strengthened field name copy rules. Added IF REQUEST IS VAGUE default behavior.
 5. **Upgraded Dashboard Prompt** — Replaced minimal ~400-char prompt with comprehensive version matching chart creation quality. Added field type summary, chart type guide, dashboard design rules, aggregation rules, retry context hints.
 6. **Improved Modify Request** — Added system message emphasizing preservation. Reduced temperature 0.3→0.15 for deterministic output. Added PRESERVATION RULE section + 3 few-shot examples (bigger, chart type change, add color).
 7. **Improved Data Question Prompt** — Used previously unused `fields` parameter. Added field list + exact field name instruction for generated queries. Added 3 few-shot examples. Added `response_format: { type: 'json_object' }` for reliable parsing.
 8. **Better Error Messages** — Added actionable hints in catch blocks (chart: specify fields, modify: try simpler change, dashboard: specify fields). Added JSON parse error detection in useVizStore with rephrasing suggestion.
+9. **Delete Chart — Dashboard Mode** — Delete/remove requests on focused dashboard charts now route to `modify_dashboard` instead of `modify`. Added 5 layers of protection: hard override in processAIQuery when focusedChartId is set + delete keyword detected, direct delete-by-ID shortcut in processModifyDashboardRequest (no LLM call needed), disambiguation rule in intent prompt, intent validation override (modify→modify_dashboard when delete keywords + dashboard), fallback regex with hasDashboard parameter.
+10. **Delete Chart — Single Chart Mode** — Added `deleteChart` flag to `AIQueryResult` type. Delete requests in single chart mode (no dashboard) are intercepted before intent routing, returning `deleteChart: true` immediately. Store handles this by calling `resetChart()` with undo support. Delete detection requires both a delete keyword AND a target word to avoid false positives.
 
 **Files Modified**:
-- `backend/services/groqService.ts` — All prompts, field matching, error messages (+181 lines)
+- `backend/services/groqService.ts` — All prompts, field matching, error messages, delete routing (+260 lines)
 - `backend/services/dataContextService.ts` — LLM context formatting with type grouping and examples
-- `frontend/src/store/useVizStore.ts` — JSON/parse error detection with user-friendly message
+- `backend/types/index.ts` — Added `deleteChart` flag to `AIQueryResult`
+- `frontend/src/store/useVizStore.ts` — JSON/parse error detection, deleteChart handler with resetChart + undo
 
 ---
 
@@ -844,7 +847,8 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 | `frontend/src/components/data-shelf/DataShelf.tsx` | 7, 8, 11, 12, 13, 15 |
 | `frontend/src/components/ai/AIChat.tsx` | 6, 17, 18 |
 | `backend/services/groqService.ts` | 1, 6, 11, 17, 19, 26, 28 |
-| `backend/types/index.ts` | 10, 11, 14, 18, 21, 22 |
+| `backend/services/dataContextService.ts` | 28 |
+| `backend/types/index.ts` | 10, 11, 14, 18, 21, 22, 28 |
 | `backend/utils/echartsOptionBuilder.ts` | 10, 21, 22 |
 | `frontend/src/services/exportService.ts` | 2, 3, 15 |
 
@@ -862,7 +866,7 @@ The following items from the Product Analysis Report were explicitly skipped:
 
 | Date | Change |
 |------|--------|
-| 2026-02-15 | Task 28 (AI Chat Accuracy & Robustness) completed - Scored field matching (7-tier findFieldFuzzy), enhanced LLM context with type grouping, intent disambiguation rules, few-shot examples for chart/dashboard/modify/question prompts, reduced modify temperature, improved error messages with actionable hints |
+| 2026-02-15 | Task 28 (AI Chat Accuracy & Robustness) completed - Scored field matching (7-tier findFieldFuzzy), enhanced LLM context with type grouping, intent disambiguation rules, few-shot examples for chart/dashboard/modify/question prompts, reduced modify temperature, improved error messages with actionable hints, delete chart routing fix for dashboard mode (5-layer protection with direct delete-by-ID shortcut), delete chart support in single chart mode (deleteChart flag + resetChart with undo) |
 | 2026-02-14 | Task 27 (Dashboard Templates) completed - 7 pre-built dashboard templates (Sales, Marketing, Finance, Operations, General), DashboardTemplateGallery dialog with search/filter/layout preview, applyDashboardTemplate store action with auto-field mapping and layout compaction, wired into DashboardGrid empty state and Add Chart dropdown |
 | 2026-02-14 | Task 22 (Drill-Down Navigation) completed - Temporal hierarchy detection (year→quarter→month→week→day), DrillBreadcrumb component with trail/up/reset, click-to-drill on VizPreview, drill data transformation in regenerateSpec, auto-clear on encoding/data change |
 | 2026-02-14 | Task 20 (Chart Templates Gallery) completed - 17 templates across 5 categories, auto-field mapping by type+name patterns, TemplateGallery dialog with search/filter/preview, applyTemplate store action with undo support |
