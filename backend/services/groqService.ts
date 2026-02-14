@@ -574,10 +574,16 @@ export async function detectIntent(
     chatHistory?: AIMessage[]
 ): Promise<{ intent: AIIntent; reasoning: string }> {
     try {
-        // Build context from recent chat history
-        const recentHistory = chatHistory?.slice(-3) || [];
+        // Build context from recent chat history (expanded from 3 to 5 for better context)
+        const recentHistory = chatHistory?.slice(-5) || [];
         const conversationContext = recentHistory.length > 0
             ? `\n\nRecent conversation:\n${recentHistory.map(m => `${m.role}: ${m.content}`).join('\n')}`
+            : '';
+
+        // Extract previous intent hint from last assistant message
+        const lastAssistantMsg = [...(chatHistory || [])].reverse().find(m => m.role === 'assistant');
+        const previousIntentHint = lastAssistantMsg?.resultType
+            ? `\n- Previous action type: ${lastAssistantMsg.resultType}`
             : '';
 
         const prompt = `You are an intent classifier for a data visualization tool. Analyze the user's query and determine their intent.
@@ -626,15 +632,25 @@ export async function detectIntent(
    - Keywords: forecast, predict, project, next N months, future, trend forward, extrapolate
    - Examples: "Forecast next 6 months", "Predict future sales", "Project revenue"
 
+**DISAMBIGUATION RULES (apply these in order):**
+- If user mentions a specific chart type name (bar, line, pie, histogram, etc.) WITHOUT "make it"/"change"/"switch" → always **chart**
+- "show me"/"visualize"/"display" + field references → **chart** (not question)
+- "What is"/"how much"/"what's the average"/"how many" → **question** (not chart)
+- If hasCurrentChart=false → NEVER return **modify** (use chart instead)
+- If hasDashboard=false → NEVER return **modify_dashboard** (use dashboard instead)
+- "compare" or "vs" or "versus" → prefer **compare** over chart
+- "filter"/"only show"/"where" → prefer **filter** over chart
+- "show me something interesting"/"explore the data" → **chart** (create a default chart)
+
 **CONTEXT:**
 - Current chart exists: ${hasCurrentChart ? 'YES' : 'NO'}
 - Dashboard exists: ${hasDashboard ? 'YES' : 'NO'}
-${dataContext ? `- Data available: ${dataContext}` : ''}${conversationContext}
+${dataContext ? `- Data available: ${dataContext}` : ''}${previousIntentHint}${conversationContext}
 
 **USER QUERY:** "${query}"
 
 **INSTRUCTIONS:**
-1. Analyze the query carefully considering context
+1. Analyze the query carefully considering context and disambiguation rules
 2. Choose the MOST APPROPRIATE intent
 3. If the query mentions "modify/change" but there's no current chart, classify as "chart"
 4. If the query mentions "add to dashboard" but there's no dashboard, classify as "dashboard"
@@ -736,7 +752,7 @@ function fallbackIntentDetection(query: string, hasCurrentChart: boolean): AIInt
         return 'chart';
     }
 
-    if (/^(make it|change|switch to)/i.test(lowerQuery) && hasCurrentChart) return 'modify';
+    if (/\b(make it|change (the|it|this)|switch to|bigger|smaller|resize|recolor|sort by)\b/i.test(lowerQuery) && hasCurrentChart) return 'modify';
     if (/^(why|explain)/i.test(lowerQuery)) return 'explain';
     if (/\?$|^what|^how|^which|average|sum|count/i.test(lowerQuery)) return 'question';
 
@@ -902,7 +918,7 @@ export async function processAIQueryStreaming(
 async function processDataQuestion(
     query: string,
     dataProfile: DataProfile,
-    _fields: FieldInfo[],
+    fields: FieldInfo[],
     data: DataRecord[],
     chatHistory: AIMessage[] = [],
     chartContext: string = '',
@@ -916,10 +932,15 @@ async function processDataQuestion(
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
         ).join('\n');
 
+        // Build concise field list for query generation
+        const fieldList = fields.map(f => `"${f.name}" (${f.type})`).join(', ');
+
         const prompt = `You are a helpful data analyst assistant for a data visualization tool called OpenViz. Answer the user's question about the data, charts, or dashboard.
 
 **DATASET OVERVIEW:**
 ${context}
+
+**AVAILABLE FIELDS:** ${fieldList}
 
 **CURRENT CHART:**
 ${chartContext || 'No chart currently configured.'}
@@ -942,15 +963,16 @@ You can answer questions about:
 - If asking about the dashboard (e.g., "what's in my dashboard?"), describe the charts using the dashboard status above
 - For follow-up questions (like "elaborate", "tell me more"), provide more details based on the previous conversation
 - For statistical questions about the data, provide accurate numbers
+- IMPORTANT: When generating queries, field names MUST be copied EXACTLY from the AVAILABLE FIELDS list above
 
 If the question requires calculating specific values (sum, average, max, min, count), respond with JSON:
 {
     "needsQuery": true,
     "query": {
         "operation": "sum" | "mean" | "min" | "max" | "count" | "distinct",
-        "field": "field name",
-        "groupBy": "optional field for grouping",
-        "orderBy": { "field": "field", "direction": "asc" | "desc" },
+        "field": "exact field name from available fields",
+        "groupBy": "exact field name or null",
+        "orderBy": { "field": "exact field name", "direction": "asc" | "desc" },
         "limit": optional number
     }
 }
@@ -961,12 +983,26 @@ Otherwise, respond with JSON:
     "answer": "Your detailed, helpful answer here. Be specific and informative."
 }
 
+**EXAMPLES:**
+
+Example 1 - "What's the average revenue?"
+Fields: "Revenue" (quantitative), "Region" (nominal)
+{"needsQuery":true,"query":{"operation":"mean","field":"Revenue"}}
+
+Example 2 - "Which region has the most sales?"
+Fields: "Sales" (quantitative), "Region" (nominal)
+{"needsQuery":true,"query":{"operation":"sum","field":"Sales","groupBy":"Region","orderBy":{"field":"Sales","direction":"desc"},"limit":1}}
+
+Example 3 - "What does this chart show?"
+{"needsQuery":false,"answer":"This chart shows a bar chart of Revenue by Region, using sum aggregation..."}
+
 Respond with ONLY the JSON.`;
 
         const response = await callAI({
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 1024,
+            response_format: { type: 'json_object' },
         });
 
         const content = response.choices[0]?.message?.content;
@@ -1021,7 +1057,7 @@ Respond with ONLY the JSON.`;
 async function processDataQuestionStreaming(
     query: string,
     dataProfile: DataProfile,
-    _fields: FieldInfo[],
+    fields: FieldInfo[],
     data: DataRecord[],
     chatHistory: AIMessage[] = [],
     chartContext: string = '',
@@ -1036,10 +1072,15 @@ async function processDataQuestionStreaming(
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
         ).join('\n');
 
+        // Build concise field list for query generation
+        const fieldList = fields.map(f => `"${f.name}" (${f.type})`).join(', ');
+
         const prompt = `You are a helpful data analyst assistant for a data visualization tool called OpenViz. Answer the user's question about the data, charts, or dashboard.
 
 **DATASET OVERVIEW:**
 ${context}
+
+**AVAILABLE FIELDS:** ${fieldList}
 
 **CURRENT CHART:**
 ${chartContext || 'No chart currently configured.'}
@@ -1062,15 +1103,16 @@ You can answer questions about:
 - If asking about the dashboard (e.g., "what's in my dashboard?"), describe the charts using the dashboard status above
 - For follow-up questions (like "elaborate", "tell me more"), provide more details based on the previous conversation
 - For statistical questions about the data, provide accurate numbers
+- IMPORTANT: When generating queries, field names MUST be copied EXACTLY from the AVAILABLE FIELDS list above
 
 If the question requires calculating specific values (sum, average, max, min, count), respond with JSON:
 {
     "needsQuery": true,
     "query": {
         "operation": "sum" | "mean" | "min" | "max" | "count" | "distinct",
-        "field": "field name",
-        "groupBy": "optional field for grouping",
-        "orderBy": { "field": "field", "direction": "asc" | "desc" },
+        "field": "exact field name from available fields",
+        "groupBy": "exact field name or null",
+        "orderBy": { "field": "exact field name", "direction": "asc" | "desc" },
         "limit": optional number
     }
 }
@@ -1088,6 +1130,7 @@ Respond with ONLY the JSON.`;
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
             max_tokens: 1024,
+            response_format: { type: 'json_object' },
         });
 
         const content = response.choices[0]?.message?.content;
@@ -1342,16 +1385,40 @@ ${recentHistory ? `**RECENT CONVERSATION:**\n${recentHistory}\n\n` : ''}**USER R
 }
 
 **CRITICAL RULES:**
-- Use field names EXACTLY as they appear
+- COPY field names EXACTLY as listed in AVAILABLE FIELDS — do NOT rephrase, abbreviate, or invent field names
 - Include reasoning in your response
 - Make smart inferences if user's language is vague
 - Default to the most common/obvious visualization for the request
+- If you cannot match a field from the user's request, use the CLOSEST available field rather than inventing one
+
+**IF REQUEST IS VAGUE** (e.g., "show me something interesting", "explore the data", "make a chart"):
+- Pick the first nominal/categorical field for X-axis
+- Pick the first quantitative field for Y-axis with aggregate "sum"
+- Use mark "bar" as default
+- Give it a descriptive title based on the fields chosen
+
+**FEW-SHOT EXAMPLES:**
+
+Example 1 - User: "Show sales by region"
+Fields: "Region" (nominal), "Sales_Amount" (quantitative), "Date" (temporal)
+Output:
+{"mark":"bar","encodings":[{"channel":"x","fieldName":"Region","aggregate":null,"bin":false},{"channel":"y","fieldName":"Sales_Amount","aggregate":"sum","bin":false}],"title":"Total Sales by Region","reasoning":"Bar chart comparing sales across regions using sum aggregation."}
+
+Example 2 - User: "Revenue trend over time"
+Fields: "Month" (temporal), "Revenue" (quantitative), "Category" (nominal)
+Output:
+{"mark":"line","encodings":[{"channel":"x","fieldName":"Month","aggregate":null,"bin":false},{"channel":"y","fieldName":"Revenue","aggregate":"sum","bin":false}],"title":"Revenue Trend Over Time","reasoning":"Line chart to show temporal revenue trend."}
+
+Example 3 - User: "Distribution of prices"
+Fields: "Price" (quantitative), "Product" (nominal)
+Output:
+{"mark":"bar","encodings":[{"channel":"x","fieldName":"Price","aggregate":null,"bin":true},{"channel":"y","fieldName":"Price","aggregate":"count","bin":false}],"title":"Price Distribution","reasoning":"Histogram showing frequency distribution of prices using binning."}
 
 Respond with ONLY valid JSON.`;
 
         const response = await callAI({
             messages: [
-                { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
+                { role: 'system', content: 'You are an expert data visualization assistant that responds with JSON. Respond with ONLY valid JSON, no markdown, no explanation.' },
                 { role: 'user', content: prompt }
             ],
             temperature: 0.1,
@@ -1428,10 +1495,11 @@ Respond with ONLY valid JSON.`;
 
     } catch (error) {
         console.error('Chart Request Error:', error);
+        const msg = error instanceof Error ? error.message : 'Failed to create chart';
         return {
             query,
             intent: 'chart',
-            error: error instanceof Error ? error.message : 'Failed to create chart',
+            error: `${msg}. Try being more specific about which fields to use (e.g., "bar chart of Sales by Region").`,
         };
     }
 }
@@ -1500,6 +1568,9 @@ ${currentChart}
    - "change title to X", "rename to Y"
    - Modify title property
 
+**PRESERVATION RULE:**
+This is a PATCH operation — you MUST preserve ALL existing chart settings unless the user EXPLICITLY asks to change them. Copy the current mark, all encodings, title, etc. Only modify the specific aspect mentioned.
+
 **CRITICAL RULES:**
 - PRESERVE everything not mentioned in the user's request
 - If user asks for color by field name, find the closest matching field
@@ -1524,13 +1595,33 @@ ${currentChart}
   "reasoning": "Brief explanation of changes made (1 sentence)"
 }
 
+**FEW-SHOT EXAMPLES:**
+
+Example 1 - User: "make it bigger"
+Current: bar chart, X=Region, Y=Sales (sum)
+Output:
+{"mark":"bar","encodings":[{"channel":"x","fieldName":"Region","aggregate":null},{"channel":"y","fieldName":"Sales","aggregate":"sum"}],"title":null,"fixedColor":null,"width":800,"height":600,"reasoning":"Increased chart dimensions to 800x600."}
+
+Example 2 - User: "change to line chart"
+Current: bar chart, X=Month, Y=Revenue (sum)
+Output:
+{"mark":"line","encodings":[{"channel":"x","fieldName":"Month","aggregate":null},{"channel":"y","fieldName":"Revenue","aggregate":"sum"}],"title":null,"fixedColor":null,"width":600,"height":400,"reasoning":"Changed chart type from bar to line, preserved all encodings."}
+
+Example 3 - User: "add color by Category"
+Current: bar chart, X=Region, Y=Sales (sum)
+Output:
+{"mark":"bar","encodings":[{"channel":"x","fieldName":"Region","aggregate":null},{"channel":"y","fieldName":"Sales","aggregate":"sum"},{"channel":"color","fieldName":"Category","aggregate":null}],"title":null,"fixedColor":null,"width":600,"height":400,"reasoning":"Added color encoding by Category field."}
+
 Respond ONLY with valid JSON.`;
 
         const response = await callAI({
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.3,
+            messages: [
+                { role: 'system', content: 'You are an expert chart modification assistant. Preserve all existing chart settings unless explicitly asked to change them. Respond with ONLY valid JSON.' },
+                { role: 'user', content: prompt }
+            ],
+            temperature: 0.15,
             max_tokens: 1024,
-            response_format: { type: 'json_object' }, // Force JSON mode
+            response_format: { type: 'json_object' },
         });
 
         const content = response.choices[0]?.message?.content;
@@ -1577,10 +1668,11 @@ Respond ONLY with valid JSON.`;
 
     } catch (error) {
         console.error('Modify Request Error:', error);
+        const msg = error instanceof Error ? error.message : 'Failed to modify chart';
         return {
             query,
             intent: 'modify',
-            error: error instanceof Error ? error.message : 'Failed to modify chart',
+            error: `${msg}. Try a simpler change like "make it bigger" or "change to line chart".`,
         };
     }
 }
@@ -1597,49 +1689,86 @@ async function processDashboardRequest(
     dataProfile: DataProfile,
     fields: FieldInfo[]
 ): Promise<AIQueryResult> {
-    // Create explicit field list for LLM
-    const fieldList = fields.map(f =>
-        `- "${f.name}" (${f.type})${f.stats.min !== undefined ? ` [min: ${f.stats.min}, max: ${f.stats.max}]` : ''}`
-    ).join('\n');
+    // Create detailed field info grouped by type
+    const numericFields = fields.filter(f => f.type === 'quantitative');
+    const categoricalFields = fields.filter(f => f.type === 'nominal' || f.type === 'ordinal');
+    const temporalFields = fields.filter(f => f.type === 'temporal');
 
-    const prompt = `You are creating a multi-chart dashboard. ONLY use the exact field names provided below.
+    const fieldList = fields.map(f => {
+        const fieldProfile = dataProfile.fields.find((fp: { name: string }) => fp.name === f.name);
+        const samples = fieldProfile?.exampleValues?.slice(0, 3).join(', ') || '';
+        const statsInfo = f.type === 'quantitative'
+            ? ` [numeric: min=${f.stats.min}, max=${f.stats.max}]`
+            : f.type === 'temporal'
+                ? ` [date/time]`
+                : ` [${fieldProfile?.uniqueCount || '?'} unique values]`;
+        return `- "${f.name}" (${f.type})${statsInfo}${samples ? ` e.g.: ${samples}` : ''}`;
+    }).join('\n');
 
-AVAILABLE FIELDS (use EXACT names):
+    const prompt = `You are an expert data visualization assistant creating a multi-chart dashboard.
+
+**DATASET:** ${dataProfile.rowCount} rows, ${fields.length} fields
+
+**FIELD SUMMARY:**
+- Numeric fields: ${numericFields.map(f => `"${f.name}"`).join(', ') || 'none'}
+- Categorical fields: ${categoricalFields.map(f => `"${f.name}"`).join(', ') || 'none'}
+- Temporal fields: ${temporalFields.map(f => `"${f.name}"`).join(', ') || 'none'}
+
+**AVAILABLE FIELDS (COPY names EXACTLY):**
 ${fieldList}
 
-Dataset has ${dataProfile.rowCount} rows.
+**USER REQUEST:** "${query}"
 
-User request: "${query}"
+**CHART TYPE SELECTION GUIDE:**
+- **bar**: Categorical comparison (nominal X + quantitative Y)
+- **line**: Temporal trends (temporal X + quantitative Y)
+- **point** (scatter): Correlation between two quantitative variables
+- **area**: Trends with emphasis on magnitude
+- **arc** (pie): Part-to-whole relationships (use sparingly, max 1 per dashboard)
 
-Create a dashboard with 2-4 charts. IMPORTANT RULES:
-1. ONLY use field names from the list above - copy them EXACTLY
-2. Use quantitative fields for Y-axis, nominal fields for X-axis
-3. Always include an aggregate (sum, mean, count) for quantitative Y-axis fields
+**DASHBOARD DESIGN RULES:**
+1. Create 2-4 charts that show DIFFERENT aspects of the data
+2. Use VARIETY in chart types — do NOT repeat the same chart type if possible
+3. Use DIFFERENT field combinations for each chart (avoid redundancy)
+4. COPY field names EXACTLY from the list above — do NOT invent or rephrase names
+5. Use categorical/temporal fields for X-axis, quantitative fields for Y-axis
 
-Respond with ONLY valid JSON:
+**AGGREGATION RULES:**
+- Categorical X + Quantitative Y → aggregate: "sum" (for totals) or "mean" (for averages)
+- Temporal X + Quantitative Y → aggregate: "sum" or "mean"
+- For "count" or frequency → aggregate: "count"
+- For arc/pie charts → use theta channel with aggregate: "sum"
+
+**OUTPUT FORMAT (JSON only):**
 {
-    "title": "Dashboard title",
+    "title": "Descriptive dashboard title",
     "charts": [
         {
-            "mark": "bar",
+            "mark": "bar|line|point|area|arc",
             "encodings": [
                 {"channel": "x", "fieldName": "EXACT_FIELD_NAME", "aggregate": null},
                 {"channel": "y", "fieldName": "EXACT_FIELD_NAME", "aggregate": "sum"}
             ],
-            "title": "Chart title"
+            "title": "Descriptive chart title"
         }
     ],
     "layout": {"cols": 2, "rows": 2}
-}`;
+}
+
+Respond with ONLY valid JSON.`;
 
     // Retry logic - try up to 3 times
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
+            const retryHint = attempt > 1
+                ? `\n\nNOTE: Previous attempt failed. Make sure to use EXACT field names from the list and produce valid JSON.`
+                : '';
+
             const response = await callAI({
                     messages: [
-                    { role: 'system', content: 'You are a JSON generator. Respond with ONLY valid JSON, no markdown, no explanation.' },
-                    { role: 'user', content: prompt }
+                    { role: 'system', content: 'You are an expert data visualization assistant that responds with JSON. Respond with ONLY valid JSON, no markdown, no explanation.' },
+                    { role: 'user', content: prompt + retryHint }
                 ],
                 temperature: attempt === 1 ? 0.2 : 0.1, // Lower temp on retries
                 max_tokens: 2048,
@@ -1782,7 +1911,7 @@ Respond with ONLY valid JSON:
         query,
         intent: 'dashboard',
         dashboardConfig: fallbackDashboard,
-        textAnswer: `Created a basic dashboard (AI had issues, showing default view)`,
+        textAnswer: `Created a basic dashboard (AI had issues, showing default view). Try specifying fields, e.g., "Create a dashboard showing Sales by Region and Revenue over Time".`,
     };
 }
 
@@ -2122,6 +2251,85 @@ Respond with JSON:
 /**
  * Build ChartConfig from AI response with defensive checks and fuzzy field matching
  */
+/**
+ * Scored fuzzy field matching — shared across all request handlers.
+ * Returns the best-matching field using a ranked scoring system.
+ */
+function findFieldFuzzy(name: string, fields: FieldInfo[]): FieldInfo | undefined {
+    if (!name) return undefined;
+    const input = name.toLowerCase().trim();
+    if (!input) return undefined;
+
+    // Normalize: collapse underscores, hyphens, spaces → single space
+    const normalize = (s: string) => s.toLowerCase().replace(/[_\-\s]+/g, ' ').trim();
+    const normalizedInput = normalize(input);
+
+    let bestField: FieldInfo | undefined;
+    let bestScore = 0;
+
+    for (const field of fields) {
+        const fieldLower = field.name.toLowerCase();
+        const normalizedField = normalize(field.name);
+        let score = 0;
+
+        // 100: Exact match (case-insensitive)
+        if (fieldLower === input) {
+            return field; // immediate return
+        }
+
+        // 90: Match ignoring separators (underscores/hyphens/spaces)
+        if (normalizedField === normalizedInput) {
+            score = Math.max(score, 90);
+        }
+
+        // 80: Field starts with input
+        if (fieldLower.startsWith(input)) {
+            score = Math.max(score, 80);
+        }
+
+        // 75: Input starts with field name
+        if (input.startsWith(fieldLower)) {
+            score = Math.max(score, 75);
+        }
+
+        // 70: Input is a whole word within field name (word boundary)
+        const fieldWords = normalizedField.split(' ');
+        const inputWords = normalizedInput.split(' ');
+        if (fieldWords.some(w => w === normalizedInput)) {
+            score = Math.max(score, 70);
+        }
+
+        // 60: Field contains input as substring
+        if (fieldLower.includes(input)) {
+            score = Math.max(score, 60);
+        }
+
+        // 50: Input contains field name as substring
+        if (input.includes(fieldLower)) {
+            score = Math.max(score, 50);
+        }
+
+        // 30-50: Word-level partial matching (scored by proportion of matching words)
+        if (inputWords.length > 0 && fieldWords.length > 0) {
+            const matchingWords = inputWords.filter(iw =>
+                iw.length >= 2 && fieldWords.some(fw => fw.includes(iw) || iw.includes(fw))
+            );
+            if (matchingWords.length > 0) {
+                const proportion = matchingWords.length / Math.max(inputWords.length, fieldWords.length);
+                const wordScore = 30 + Math.round(proportion * 20); // 30-50
+                score = Math.max(score, wordScore);
+            }
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestField = field;
+        }
+    }
+
+    return bestField;
+}
+
 function buildChartConfig(
     aiResponse: {
         mark?: MarkType;
@@ -2137,34 +2345,6 @@ function buildChartConfig(
     fields: FieldInfo[]
 ): ChartConfig {
     const encodings: ShelfPlacement[] = [];
-
-    // Helper: Find field with fuzzy matching
-    const findField = (name: string): FieldInfo | undefined => {
-        if (!name) return undefined;
-        const lowerName = name.toLowerCase().trim();
-
-        // Exact match (case-insensitive)
-        let field = fields.find(f => f.name.toLowerCase() === lowerName);
-        if (field) return field;
-
-        // Contains match
-        field = fields.find(f => f.name.toLowerCase().includes(lowerName));
-        if (field) return field;
-
-        // Reverse contains (field name is in the input)
-        field = fields.find(f => lowerName.includes(f.name.toLowerCase()));
-        if (field) return field;
-
-        // Word boundary match (any word matches)
-        const words = lowerName.split(/\s+|_|-/);
-        for (const word of words) {
-            if (word.length < 2) continue;
-            field = fields.find(f => f.name.toLowerCase().includes(word));
-            if (field) return field;
-        }
-
-        return undefined;
-    };
 
     // Helper: Get recommended default fields based on data types
     const getDefaultXField = (): FieldInfo | undefined => {
@@ -2190,7 +2370,7 @@ function buildChartConfig(
     for (const enc of responseEncodings) {
         // Handle both 'fieldName' and 'field' as possible keys
         const fieldNameFromResponse = enc.fieldName || enc.field || '';
-        const field = findField(fieldNameFromResponse);
+        const field = findFieldFuzzy(fieldNameFromResponse, fields);
 
         if (field && enc.channel) {
             // Auto-add aggregation for quantitative fields on Y axis if not specified
@@ -2330,18 +2510,10 @@ Respond with ONLY valid JSON:
             summary?: string;
         };
 
-        // Fuzzy match field names
-        const findField = (name: string) => {
-            const lower = name.toLowerCase();
-            return fields.find(f => f.name.toLowerCase() === lower)
-                || fields.find(f => f.name.toLowerCase().includes(lower))
-                || fields.find(f => lower.includes(f.name.toLowerCase()));
-        };
-
         const validConditions = parsed.conditions
-            .filter(c => findField(c.field))
+            .filter(c => findFieldFuzzy(c.field, fields))
             .map(c => ({
-                field: findField(c.field)!.name,
+                field: findFieldFuzzy(c.field, fields)!.name,
                 operator: c.operator as FilterSpec['conditions'][0]['operator'],
                 value: c.value,
                 valueTo: c.valueTo,
@@ -2424,15 +2596,8 @@ Respond with ONLY valid JSON:
             aggregate: string;
         };
 
-        // Fuzzy match fields
-        const findField = (name: string) => {
-            const lower = name.toLowerCase();
-            return fields.find(f => f.name.toLowerCase() === lower)
-                || fields.find(f => f.name.toLowerCase().includes(lower));
-        };
-
-        const groupField = findField(parsed.groupField);
-        const metricField = findField(parsed.metricField);
+        const groupField = findFieldFuzzy(parsed.groupField, fields);
+        const metricField = findFieldFuzzy(parsed.metricField, fields);
 
         if (!groupField || !metricField) {
             return { query, intent: 'compare', error: 'Could not identify fields for comparison.' };
@@ -2524,15 +2689,8 @@ Respond with ONLY valid JSON:
             periods: number;
         };
 
-        // Fuzzy match fields
-        const findField = (name: string) => {
-            const lower = name.toLowerCase();
-            return fields.find(f => f.name.toLowerCase() === lower)
-                || fields.find(f => f.name.toLowerCase().includes(lower));
-        };
-
-        let temporalField = findField(parsed.temporalField);
-        let metricField = findField(parsed.metricField);
+        let temporalField = findFieldFuzzy(parsed.temporalField, fields);
+        let metricField = findFieldFuzzy(parsed.metricField, fields);
 
         // Fallback: find first temporal and first quantitative
         if (!temporalField) {

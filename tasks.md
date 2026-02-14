@@ -3,13 +3,13 @@
 > **Generated**: January 28, 2026
 > **Based on**: OpenViz_Product_Analysis_Report.md
 > **Timeline**: Ongoing/Flexible
-> **Last Updated**: February 5, 2026
+> **Last Updated**: February 15, 2026
 
 ---
 
 ## Quick Status
 
-### Completed Tasks (23/27)
+### Completed Tasks (24/28)
 | # | Task | Priority |
 |---|------|----------|
 | 1 | API Key Security (Cloudflare Worker Proxy) | P0 |
@@ -35,6 +35,7 @@
 | 20 | Chart Templates Gallery | P2 |
 | 22 | Drill-Down Navigation | P2 |
 | 27 | Dashboard Templates | P2 |
+| 28 | AI Chat Accuracy & Robustness | P1 |
 
 ### Next Up
 | # | Task | Priority |
@@ -59,10 +60,10 @@ This document outlines all implementation tasks for OpenViz based on the Product
 | Priority | Total | Done | In Progress |
 |----------|-------|------|-------------|
 | P0 - Critical | 9 | 9 | 0 |
-| P1 - High | 7 | 7 | 0 |
+| P1 - High | 8 | 8 | 0 |
 | P2 - Medium | 6 | 6 | 0 |
 | Architecture | 4 | 0 | 0 |
-| **Total** | **26** | **22** | **0** |
+| **Total** | **27** | **23** | **0** |
 
 ---
 
@@ -756,6 +757,28 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 - `frontend/src/store/useVizStore.ts` - applyDashboardTemplate action
 - `frontend/src/components/canvas/DashboardGrid.tsx` - "From Template" button in empty state + Add Chart dropdown
 
+### Task 28: AI Chat Accuracy & Robustness
+- [x] **Status**: Completed
+- **Priority**: P1
+- **Effort**: Medium (1 day)
+
+**Problem**: AI chat frequently misclassifies intent, picks wrong fields, and produces inaccurate charts due to weak prompts, simplistic field matching, and inconsistent guidance across request types.
+
+**Implementation**:
+1. **Scored Field Matching** — Replaced first-match-wins `findField()` with shared `findFieldFuzzy()` utility using 7-tier scoring: exact (100), normalized ignoring separators (90), startsWith (80), input-starts-with-field (75), whole-word boundary (70), contains substring (60), reverse contains (50), word-level partial (30-50). Replaced all 4 local findField implementations.
+2. **Enhanced LLM Context** — Added field type grouping summary (Numeric/Categorical/Temporal) at top of `formatProfileForLLM()`. Always shows example values for categorical fields (up to 5 top values) for better field name matching.
+3. **Improved Intent Detection** — Added DISAMBIGUATION RULES section with 8 explicit priority rules. Added previous intent hint from last assistant message. Expanded chat history window from 3→5 messages. Improved fallback modify regex to catch mid-sentence patterns (bigger, smaller, resize, recolor, sort by).
+4. **Improved Chart Creation Prompt** — Fixed system message from generic "JSON generator" to "expert data visualization assistant". Added 3 few-shot examples (bar, line, histogram). Strengthened field name copy rules. Added IF REQUEST IS VAGUE default behavior.
+5. **Upgraded Dashboard Prompt** — Replaced minimal ~400-char prompt with comprehensive version matching chart creation quality. Added field type summary, chart type guide, dashboard design rules, aggregation rules, retry context hints.
+6. **Improved Modify Request** — Added system message emphasizing preservation. Reduced temperature 0.3→0.15 for deterministic output. Added PRESERVATION RULE section + 3 few-shot examples (bigger, chart type change, add color).
+7. **Improved Data Question Prompt** — Used previously unused `fields` parameter. Added field list + exact field name instruction for generated queries. Added 3 few-shot examples. Added `response_format: { type: 'json_object' }` for reliable parsing.
+8. **Better Error Messages** — Added actionable hints in catch blocks (chart: specify fields, modify: try simpler change, dashboard: specify fields). Added JSON parse error detection in useVizStore with rephrasing suggestion.
+
+**Files Modified**:
+- `backend/services/groqService.ts` — All prompts, field matching, error messages (+181 lines)
+- `backend/services/dataContextService.ts` — LLM context formatting with type grouping and examples
+- `frontend/src/store/useVizStore.ts` — JSON/parse error detection with user-friendly message
+
 ---
 
 ## Task Summary by Priority
@@ -814,13 +837,13 @@ const exportChart = (format: 'png' | 'svg', pixelRatio = 2) => {
 
 | File | Task IDs |
 |------|----------|
-| `frontend/src/store/useVizStore.ts` | 1, 5, 6, 10, 11, 14, 16, 17, 18, 22, 23 |
+| `frontend/src/store/useVizStore.ts` | 1, 5, 6, 10, 11, 14, 16, 17, 18, 22, 23, 28 |
 | `frontend/src/components/canvas/Canvas.tsx` | 2, 3, 7, 9, 20 |
 | `frontend/src/components/canvas/DashboardGrid.tsx` | 7, 10, 14, 15, 16 |
 | `frontend/src/components/canvas/VizPreview.tsx` | 2, 10, 22 |
 | `frontend/src/components/data-shelf/DataShelf.tsx` | 7, 8, 11, 12, 13, 15 |
 | `frontend/src/components/ai/AIChat.tsx` | 6, 17, 18 |
-| `backend/services/groqService.ts` | 1, 6, 11, 17, 19, 26 |
+| `backend/services/groqService.ts` | 1, 6, 11, 17, 19, 26, 28 |
 | `backend/types/index.ts` | 10, 11, 14, 18, 21, 22 |
 | `backend/utils/echartsOptionBuilder.ts` | 10, 21, 22 |
 | `frontend/src/services/exportService.ts` | 2, 3, 15 |
@@ -839,6 +862,7 @@ The following items from the Product Analysis Report were explicitly skipped:
 
 | Date | Change |
 |------|--------|
+| 2026-02-15 | Task 28 (AI Chat Accuracy & Robustness) completed - Scored field matching (7-tier findFieldFuzzy), enhanced LLM context with type grouping, intent disambiguation rules, few-shot examples for chart/dashboard/modify/question prompts, reduced modify temperature, improved error messages with actionable hints |
 | 2026-02-14 | Task 27 (Dashboard Templates) completed - 7 pre-built dashboard templates (Sales, Marketing, Finance, Operations, General), DashboardTemplateGallery dialog with search/filter/layout preview, applyDashboardTemplate store action with auto-field mapping and layout compaction, wired into DashboardGrid empty state and Add Chart dropdown |
 | 2026-02-14 | Task 22 (Drill-Down Navigation) completed - Temporal hierarchy detection (year→quarter→month→week→day), DrillBreadcrumb component with trail/up/reset, click-to-drill on VizPreview, drill data transformation in regenerateSpec, auto-clear on encoding/data change |
 | 2026-02-14 | Task 20 (Chart Templates Gallery) completed - 17 templates across 5 categories, auto-field mapping by type+name patterns, TemplateGallery dialog with search/filter/preview, applyTemplate store action with undo support |

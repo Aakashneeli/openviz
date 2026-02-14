@@ -257,11 +257,23 @@ function getAggregation(operation: QueryOperation, field: string) {
  * Format data profile as context string for LLM prompt
  */
 export function formatProfileForLLM(profile: DataProfile): string {
+    // Group fields by type for quick LLM orientation
+    const numericFields = profile.fields.filter(f => f.type === 'quantitative').map(f => f.name);
+    const categoricalFields = profile.fields.filter(f => f.type === 'nominal' || f.type === 'ordinal').map(f => f.name);
+    const temporalFields = profile.fields.filter(f => f.type === 'temporal').map(f => f.name);
+
     const lines: string[] = [
         `Dataset: ${profile.rowCount} rows, ${profile.columnCount} columns`,
         '',
-        'Fields:',
+        'Field Type Summary:',
     ];
+
+    if (numericFields.length > 0) lines.push(`  Numeric: ${numericFields.join(', ')}`);
+    if (categoricalFields.length > 0) lines.push(`  Categorical: ${categoricalFields.join(', ')}`);
+    if (temporalFields.length > 0) lines.push(`  Temporal: ${temporalFields.join(', ')}`);
+
+    lines.push('');
+    lines.push('Field Details:');
 
     for (const field of profile.fields) {
         let fieldLine = `- "${field.name}" (${field.type})`;
@@ -270,8 +282,11 @@ export function formatProfileForLLM(profile: DataProfile): string {
             fieldLine += `: min=${field.stats.min}, max=${field.stats.max}, mean=${field.stats.mean.toFixed(2)}`;
         } else if (field.dateRange) {
             fieldLine += `: ${field.dateRange.min} to ${field.dateRange.max}`;
-        } else if (field.topValues && field.topValues.length > 0) {
-            const topVals = field.topValues.slice(0, 3).map(v => v.value).join(', ');
+        }
+
+        // Always show example values for categorical fields (helps LLM match user language)
+        if ((field.type === 'nominal' || field.type === 'ordinal') && field.topValues && field.topValues.length > 0) {
+            const topVals = field.topValues.slice(0, 5).map(v => v.value).join(', ');
             fieldLine += `: ${field.uniqueCount} unique values (e.g., ${topVals})`;
         }
 

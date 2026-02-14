@@ -1150,6 +1150,8 @@ export const useVizStore = create<VizState & VizActions>()(
                         friendlyMessage = 'The request took too long to complete. Please try a simpler query or try again.';
                     } else if (errorMsg.includes('API key')) {
                         friendlyMessage = 'AI service is not configured. Please check your API key settings.';
+                    } else if (errorMsg.includes('JSON') || errorMsg.includes('parse') || errorMsg.includes('invalid') || errorMsg.includes('unexpected')) {
+                        friendlyMessage = 'The AI generated an unexpected response. Try rephrasing your request or being more specific about fields and chart types.';
                     }
 
                     const errorMessage: AIMessage = {
