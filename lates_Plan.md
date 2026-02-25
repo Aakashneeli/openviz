@@ -199,3 +199,25 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Removed unused non-component exports (`buttonVariants`, `badgeVariants`) that violated `react-refresh/only-export-components`.
 - Verification: `npm run lint` now passes cleanly for the frontend workspace.
 - Outcome: active lint gate is now usable as a signal for current implementation files.
+18. `Remaining Work Order / Item 2 - Fix frontend build gate blocker`: **Completed**
+- Installed explicit frontend dev dependency `@rollup/rollup-linux-x64-gnu` to avoid npm optional-dependency miss that previously broke Vite build startup.
+- Verification: `npm run build` now completes successfully (TypeScript + Vite bundling pass).
+- Outcome: frontend production build gate is restored in this environment.
+
+### Remaining Work Order (Updated 2026-02-25)
+1. `Phase 0 / Task 1`: rotate/revoke exposed AI keys and update local + deployed secrets.
+2. Fix frontend build gate blocker (`@rollup/rollup-linux-x64-gnu` optional dependency issue).
+3. Fix backend standalone typecheck (`backend/tsconfig.json` dependency on `vite/client`).
+4. Add/lock CI gates for lint + typecheck + build so regressions are caught automatically.
+5. Complete `Phase 1 / Task 6` follow-up: remove temporary `src/store/slices/**` lint ignore by deleting legacy slices or fully migrating to slice-based store.
+6. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
+7. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
+8. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
+9. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+10. Add automated tests (smoke + security + mark-mapping regression coverage).
+11. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+12. Complete remaining `Phase 3` product features:
+- AI action preview mode
+- semantic model layer
+- dashboard version snapshots
+- data freshness UX improvements
