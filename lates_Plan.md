@@ -177,3 +177,6 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Updated AI transport in `backend/services/groqService.ts` to enforce proxy-first behavior and fail closed when `VITE_AI_PROXY_URL` is missing.
 - Direct browser-provider mode is now blocked by default and only permitted under explicit insecure local dev conditions.
 - Outcome: non-proxy environments no longer silently fall back to browser API-key calls.
+13. `Phase 0 / Task 3 - Controlled dev-only direct mode flag`: **Completed**
+- Added `frontend/.env.example` with secure defaults and explicit `VITE_ALLOW_INSECURE_DIRECT_AI=false`.
+- Outcome: direct browser mode is now explicitly opt-in with a clear default for local configuration.
