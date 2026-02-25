@@ -31,19 +31,46 @@ import { generateAnnotations } from './annotationService';
 // Configuration
 // ============================================
 
-import { getProviderManager, isAnyProviderAvailable, getLastProviderName, getAvailableProviderNames } from './aiProvider';
+import {
+    getProviderManager,
+    isAnyProviderAvailable,
+    getLastProviderName as getLastProviderNameFromManager,
+    getAvailableProviderNames as getAvailableProviderNamesFromManager,
+} from './aiProvider';
 import type { ChatMessage, ChatCompletionRequest, ChatCompletionResponse } from './aiProvider';
 
 // AI Proxy URL - In production, this should point to your Cloudflare Worker
 const AI_PROXY_URL = import.meta.env.VITE_AI_PROXY_URL;
 const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'meta-llama/llama-4-maverick-17b-128e-instruct';
+const ALLOW_INSECURE_DIRECT_AI = import.meta.env.VITE_ALLOW_INSECURE_DIRECT_AI === 'true';
 
 // Retry configuration
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 
-// Re-export provider utilities for external use
-export { getLastProviderName, getAvailableProviderNames };
+let lastTransportName: string | null = null;
+
+function isLocalDevHost(): boolean {
+    if (!import.meta.env.DEV || typeof window === 'undefined') {
+        return false;
+    }
+
+    const hostname = window.location.hostname;
+    return hostname === 'localhost'
+        || hostname === '127.0.0.1'
+        || hostname === '[::1]'
+        || hostname.endsWith('.local');
+}
+
+function canUseInsecureDirectAI(): boolean {
+    return ALLOW_INSECURE_DIRECT_AI && isLocalDevHost();
+}
+
+function getDirectModeDisabledError(): Error {
+    return new Error(
+        'Direct browser AI mode is disabled. Configure VITE_AI_PROXY_URL (recommended) or set VITE_ALLOW_INSECURE_DIRECT_AI=true for localhost development only.'
+    );
+}
 
 // ============================================
 // AI Call with Retry Logic & Provider Fallback
@@ -68,11 +95,15 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
             if (AI_PROXY_URL) {
                 // Use proxy in production (handles its own provider logic)
                 return await callAIProxy(request);
-            } else {
+            }
+
+            if (canUseInsecureDirectAI()) {
                 // Use provider manager with automatic fallback across providers
                 const manager = getProviderManager();
                 return await manager.chat(request);
             }
+
+            throw getDirectModeDisabledError();
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
 
@@ -121,6 +152,7 @@ async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompleti
     }
 
     const data = await response.json();
+    lastTransportName = 'Proxy';
     return { ...data, provider: 'proxy' };
 }
 
@@ -179,8 +211,14 @@ async function* callAIStreamingProxy(request: ChatCompletionRequest): AsyncGener
  */
 function getStreamingGenerator(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
     if (AI_PROXY_URL) {
+        lastTransportName = 'Proxy';
         return callAIStreamingProxy(request);
     }
+
+    if (!canUseInsecureDirectAI()) {
+        throw getDirectModeDisabledError();
+    }
+
     // Use provider manager with automatic fallback
     const manager = getProviderManager();
     return manager.streamChat(request);
@@ -3142,7 +3180,34 @@ Respond with ONLY JSON:
 }
 
 export function isAIAvailable(): boolean {
-    // Check if any provider is available (Groq, OpenAI, or Anthropic)
-    return isAnyProviderAvailable() || Boolean(AI_PROXY_URL);
+    if (Boolean(AI_PROXY_URL)) {
+        return true;
+    }
+
+    return canUseInsecureDirectAI() && isAnyProviderAvailable();
+}
+
+export function getLastProviderName(): string | null {
+    if (lastTransportName) {
+        return lastTransportName;
+    }
+
+    if (!canUseInsecureDirectAI()) {
+        return null;
+    }
+
+    return getLastProviderNameFromManager();
+}
+
+export function getAvailableProviderNames(): string[] {
+    if (Boolean(AI_PROXY_URL)) {
+        return ['Proxy'];
+    }
+
+    if (!canUseInsecureDirectAI()) {
+        return [];
+    }
+
+    return getAvailableProviderNamesFromManager();
 }
 

@@ -173,3 +173,7 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Replaced backend `uuid` package usage with an internal `generateId()` helper (`backend/utils/id.ts`) to remove cross-package module resolution failures from frontend-driven type checks.
 - Cleared remaining TypeScript blockers found on this path (unused locals in annotation/refresh/error-fallback paths).
 - Outcome: TypeScript build now clears compile-time errors and proceeds to Vite bundling; current build stop is environment dependency (`@rollup/rollup-linux-x64-gnu` missing in local `frontend/node_modules`).
+12. `Phase 0 / Task 2 - Remove direct browser-provider fallback for standard flows`: **Completed**
+- Updated AI transport in `backend/services/groqService.ts` to enforce proxy-first behavior and fail closed when `VITE_AI_PROXY_URL` is missing.
+- Direct browser-provider mode is now blocked by default and only permitted under explicit insecure local dev conditions.
+- Outcome: non-proxy environments no longer silently fall back to browser API-key calls.
