@@ -194,3 +194,8 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Added explicit origin validation before handling preflight and POST requests, while preserving normal same-origin/no-origin server-to-server behavior.
 - Updated worker README configuration docs to mark `ALLOWED_ORIGIN` as required.
 - Outcome: proxy no longer permits permissive wildcard CORS behavior when origin config is absent.
+17. `Phase 1 / Task 6 - Lint gate cleanup (active code path)`: **Completed**
+- Fixed remaining active lint errors by replacing unsafe `Function` typing in `VizPreview` events with an explicit callback signature.
+- Removed unused non-component exports (`buttonVariants`, `badgeVariants`) that violated `react-refresh/only-export-components`.
+- Verification: `npm run lint` now passes cleanly for the frontend workspace.
+- Outcome: active lint gate is now usable as a signal for current implementation files.

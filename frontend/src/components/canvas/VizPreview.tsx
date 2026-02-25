@@ -58,7 +58,7 @@ export function VizPreview({ minWidth = 600, minHeight = 400 }: VizPreviewProps)
         drillDown(drillInfo.field, params.name, drillInfo.currentLevel);
     }, [drillInfo, drillDown]);
 
-    const onEvents = useMemo((): Record<string, Function> | undefined => {
+    const onEvents = useMemo((): Record<string, (params: { name?: string; value?: unknown; componentType?: string }) => void> | undefined => {
         if (!drillInfo?.canGoDeeper) return undefined;
         return { click: handleChartClick };
     }, [drillInfo, handleChartClick]);
