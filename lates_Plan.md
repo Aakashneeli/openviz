@@ -157,3 +157,7 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 7. `Phase 1 / Task 6 - Lint strategy (temporary scope reduction)`: **Completed**
 - Temporarily excluded `src/store/slices/**` from lint in `frontend/eslint.config.js` to focus lint signal on the active store path (`useVizStore`).
 - Result: lint errors dropped from the large legacy-slice set to 6 active-code issues.
+8. `Git push blocker (HTTPS -> SSH)`: **Resolved**
+- Root cause: `origin` was configured as HTTPS with `credential.helper=manager` and `http.sslbackend=openssl`, which failed in this environment.
+- Fix applied: switched `origin` to SSH (`git@github.com:Aakashneeli/openviz.git`) and verified auth with `ssh -T git@github.com`.
+- Outcome: all task commits were successfully pushed to `main`.
