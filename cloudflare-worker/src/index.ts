@@ -48,6 +48,11 @@ function getClientIP(request: Request): string {
            'unknown';
 }
 
+function getAllowedOrigin(env: Env): string | null {
+    const origin = env.ALLOWED_ORIGIN?.trim();
+    return origin ? origin : null;
+}
+
 /**
  * Check and update rate limit for a client
  */
@@ -109,11 +114,17 @@ async function checkRateLimit(
  * Add CORS headers to response
  */
 function corsHeaders(env: Env): HeadersInit {
+    const allowedOrigin = getAllowedOrigin(env);
+    if (!allowedOrigin) {
+        return {};
+    }
+
     return {
-        'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
+        'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
+        'Vary': 'Origin',
     };
 }
 
@@ -159,6 +170,24 @@ function validateAppAuth(request: Request, env: Env): { valid: true } | { valid:
     const providedToken = authHeader.slice('Bearer '.length).trim();
     if (!providedToken || providedToken !== expectedToken) {
         return { valid: false, status: 401, message: 'Invalid authorization token' };
+    }
+
+    return { valid: true };
+}
+
+/**
+ * Validate CORS origin policy
+ */
+function validateOrigin(request: Request, env: Env): { valid: true } | { valid: false; status: number; message: string } {
+    const allowedOrigin = getAllowedOrigin(env);
+    if (!allowedOrigin) {
+        console.error('ALLOWED_ORIGIN not configured');
+        return { valid: false, status: 500, message: 'Server configuration error' };
+    }
+
+    const requestOrigin = request.headers.get('Origin');
+    if (requestOrigin && requestOrigin !== allowedOrigin) {
+        return { valid: false, status: 403, message: 'Origin not allowed' };
     }
 
     return { valid: true };
@@ -254,6 +283,11 @@ async function proxyStreamingChat(
  */
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
+        const originResult = validateOrigin(request, env);
+        if (!originResult.valid) {
+            return errorResponse(originResult.message, originResult.status, env);
+        }
+
         // Handle CORS preflight
         if (request.method === 'OPTIONS') {
             return new Response(null, {

@@ -78,7 +78,7 @@ VITE_AI_PROXY_AUTH_TOKEN=your_openviz_proxy_auth_token_here
 |----------|---------|-------------|
 | `GROQ_API_KEY` | (required) | Your Groq API key (set via `wrangler secret`) |
 | `APP_AUTH_TOKEN` | (required) | Shared app auth token sent as `Authorization: Bearer <token>` |
-| `ALLOWED_ORIGIN` | `http://localhost:5173` | CORS allowed origin |
+| `ALLOWED_ORIGIN` | (required) | Exact CORS allowed origin (requests are rejected if unset or mismatched) |
 | `RATE_LIMIT_REQUESTS` | `100` | Max requests per window |
 | `RATE_LIMIT_WINDOW_HOURS` | `1` | Rate limit window in hours |
 
@@ -128,4 +128,4 @@ The frontend will automatically fall back to direct Groq API calls.
 **500 Server Configuration Error**: Ensure `GROQ_API_KEY` secret is set.
 Also ensure `APP_AUTH_TOKEN` is set.
 
-**CORS Error**: Check `ALLOWED_ORIGIN` matches your frontend URL exactly.
+**CORS Error**: Check `ALLOWED_ORIGIN` is set and matches your frontend URL exactly.

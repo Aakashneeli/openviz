@@ -189,3 +189,8 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Updated frontend proxy transport to send `Authorization: Bearer <VITE_AI_PROXY_AUTH_TOKEN>` and fail-fast when proxy auth token is missing.
 - Updated worker/frontend environment templates and worker README to document the new auth contract.
 - Outcome: proxy endpoint now requires app-auth credentials instead of accepting any unauthenticated POST request.
+16. `Phase 0 / Task 5 - Tighten CORS default`: **Completed**
+- Hardened worker CORS handling to fail closed when `ALLOWED_ORIGIN` is missing (no `*` fallback) and return `403` for origin mismatches.
+- Added explicit origin validation before handling preflight and POST requests, while preserving normal same-origin/no-origin server-to-server behavior.
+- Updated worker README configuration docs to mark `ALLOWED_ORIGIN` as required.
+- Outcome: proxy no longer permits permissive wildcard CORS behavior when origin config is absent.
