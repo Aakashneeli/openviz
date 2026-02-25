@@ -3,7 +3,7 @@
 // Intelligently determines optimal chart type
 // ============================================
 
-import type { ShelfPlacement, MarkType, FieldType } from '../types';
+import type { ShelfPlacement, MarkType, FieldType, SupportedMarkType } from '../types';
 
 /**
  * Determine the best chart type based on current encodings
@@ -170,7 +170,7 @@ function isNominalOrOrdinal(type: FieldType): boolean {
  * Get description for a mark type
  */
 export function getMarkDescription(mark: MarkType): string {
-    const descriptions: Record<MarkType, string> = {
+    const supportedDescriptions: Record<SupportedMarkType, string> = {
         bar: 'Bar Chart - Compare values across categories',
         line: 'Line Chart - Show trends over time or continuous data',
         point: 'Scatter Plot - Show relationships between two measures',
@@ -182,5 +182,29 @@ export function getMarkDescription(mark: MarkType): string {
         tick: 'Tick Plot - Show distribution of values',
         auto: 'Auto - Let OpenViz choose the best chart type',
     };
-    return descriptions[mark];
+
+    if (mark in supportedDescriptions) {
+        return supportedDescriptions[mark as SupportedMarkType];
+    }
+
+    const advancedDescriptions: Partial<Record<MarkType, string>> = {
+        boxplot: 'Box Plot - Show quartiles and outliers',
+        candlestick: 'Candlestick - Show OHLC financial data',
+        histogram: 'Histogram - Show value distribution',
+        treemap: 'Treemap - Compare hierarchical categories by area',
+        sunburst: 'Sunburst - Show hierarchical proportions',
+        tree: 'Tree - Display hierarchical node relationships',
+        sankey: 'Sankey - Visualize flow between stages',
+        graph: 'Graph - Show network relationships',
+        radar: 'Radar - Compare multivariate metrics',
+        heatmap: 'Heatmap - Show value intensity across a matrix',
+        funnel: 'Funnel - Show step-by-step drop-off',
+        gauge: 'Gauge - Show progress toward a target',
+        parallel: 'Parallel Coordinates - Compare many dimensions',
+        waterfall: 'Waterfall - Show cumulative change over steps',
+        calendar: 'Calendar Heatmap - Show time-based activity',
+        pictorialBar: 'Pictorial Bar - Show values with icon-like bars',
+    };
+
+    return advancedDescriptions[mark] ?? `${mark} chart`;
 }

@@ -9,9 +9,41 @@ import type {
     VegaLiteSpec,
     DataRecord,
     EncodingChannel,
-    MarkType
+    MarkType,
+    SupportedMarkType,
 } from '../types';
 import { determineChartType } from './autoChart';
+
+const SUPPORTED_VEGA_MARKS: Record<SupportedMarkType, Record<string, unknown>> = {
+    bar: { type: 'bar', cornerRadiusEnd: 4 },
+    line: { type: 'line', point: true, strokeWidth: 2 },
+    point: { type: 'point', filled: true, size: 60 },
+    area: { type: 'area', line: true, opacity: 0.7 },
+    arc: { type: 'arc', innerRadius: 50 },
+    rect: { type: 'rect' },
+    rule: { type: 'rule', strokeWidth: 2 },
+    text: { type: 'text' },
+    tick: { type: 'tick' },
+    auto: { type: 'bar', cornerRadiusEnd: 4 },
+};
+
+function toSupportedVegaMark(mark: MarkType): SupportedMarkType {
+    switch (mark) {
+        case 'bar':
+        case 'line':
+        case 'point':
+        case 'area':
+        case 'arc':
+        case 'rect':
+        case 'rule':
+        case 'text':
+        case 'tick':
+        case 'auto':
+            return mark;
+        default:
+            return 'bar';
+    }
+}
 
 /**
  * Build a complete Vega-Lite specification from chart config
@@ -47,20 +79,8 @@ export function buildVegaLiteSpec(
  * Build mark specification
  */
 function buildMarkSpec(mark: MarkType, fixedColor?: string): Record<string, unknown> {
-    const baseMarks: Record<MarkType, Record<string, unknown>> = {
-        bar: { type: 'bar', cornerRadiusEnd: 4 },
-        line: { type: 'line', point: true, strokeWidth: 2 },
-        point: { type: 'point', filled: true, size: 60 },
-        area: { type: 'area', line: true, opacity: 0.7 },
-        arc: { type: 'arc', innerRadius: 50 },
-        rect: { type: 'rect' },
-        rule: { type: 'rule', strokeWidth: 2 },
-        text: { type: 'text' },
-        tick: { type: 'tick' },
-        auto: { type: 'bar', cornerRadiusEnd: 4 },
-    };
-
-    const markSpec = { ...(baseMarks[mark] || { type: 'bar' }) };
+    const supportedMark = toSupportedVegaMark(mark);
+    const markSpec = { ...SUPPORTED_VEGA_MARKS[supportedMark] };
 
     // Apply fixed color if specified
     if (fixedColor) {

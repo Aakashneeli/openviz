@@ -161,3 +161,7 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Root cause: `origin` was configured as HTTPS with `credential.helper=manager` and `http.sslbackend=openssl`, which failed in this environment.
 - Fix applied: switched `origin` to SSH (`git@github.com:Aakashneeli/openviz.git`) and verified auth with `ssh -T git@github.com`.
 - Outcome: all task commits were successfully pushed to `main`.
+9. `Phase 1 / Task 3 - Align MarkType mappings`: **Completed**
+- Added `SupportedMarkType` in shared types and updated Vega-Lite mapping paths to use supported-mark fallbacks instead of exhaustive `Record<MarkType, ...>` maps.
+- Updated `autoChart` description handling to gracefully describe advanced marks without forcing unsupported Vega-Lite mappings.
+- Outcome: previous compile failures for incomplete `MarkType` mapping in `autoChart` and `vegaSpecBuilder` are resolved.

@@ -157,6 +157,23 @@ export type MarkType =
     | 'tick'
     | 'auto';
 
+/**
+ * Mark types currently mapped in Vega-Lite-specific builders.
+ * Advanced chart marks remain part of MarkType but are downgraded
+ * to safe defaults when routed through Vega-Lite paths.
+ */
+export type SupportedMarkType =
+    | 'bar'
+    | 'line'
+    | 'point'
+    | 'area'
+    | 'arc'
+    | 'rect'
+    | 'rule'
+    | 'text'
+    | 'tick'
+    | 'auto';
+
 /** Annotation for highlighting data points on charts */
 export interface Annotation {
     type: 'outlier' | 'max' | 'min' | 'trend';
