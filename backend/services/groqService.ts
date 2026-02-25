@@ -22,7 +22,7 @@ import type {
     FilterSpec,
     ComparisonSpec,
 } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { generateId } from '../utils/id';
 import { executeDataQuery, formatProfileForLLM } from './dataContextService';
 import type { DataQuery } from './dataContextService';
 import { generateAnnotations } from './annotationService';
@@ -1358,8 +1358,6 @@ async function processChartRequest(
     chatHistory: AIMessage[]
 ): Promise<AIQueryResult> {
     try {
-        const context = formatProfileForLLM(dataProfile);
-
         // Build conversation context
         const recentHistory = chatHistory.slice(-4).map(m =>
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
@@ -1878,7 +1876,7 @@ Respond with ONLY valid JSON.`;
             };
 
             const dashboardConfig: DashboardConfig = {
-                id: uuidv4(),
+                id: generateId(),
                 title: sanitizeOutput(aiResponse.title || 'Dashboard'),
                 charts,
                 layout,
@@ -1922,18 +1920,18 @@ Respond with ONLY valid JSON.`;
     const fallbackCharts: ChartConfig[] = quantFields.slice(0, 2).map((qField) => {
         const xField = nominalFields[0]!;
         return {
-            id: uuidv4(),
+            id: generateId(),
             mark: 'bar' as MarkType,
             encodings: [
                 {
-                    id: uuidv4(),
+                    id: generateId(),
                     field: xField,
                     channel: 'x' as EncodingChannel,
                     aggregate: undefined,
                     bin: undefined
                 },
                 {
-                    id: uuidv4(),
+                    id: generateId(),
                     field: qField,
                     channel: 'y' as EncodingChannel,
                     aggregate: 'sum' as AggregateFunction,
@@ -1948,7 +1946,7 @@ Respond with ONLY valid JSON.`;
     });
 
     const fallbackDashboard: DashboardConfig = {
-        id: uuidv4(),
+        id: generateId(),
         title: 'Data Dashboard',
         charts: fallbackCharts,
         layout: {
@@ -2318,7 +2316,7 @@ Respond with JSON:
         }
 
         const insight: DataInsight = {
-            id: uuidv4(),
+            id: generateId(),
             type: 'summary',
             title: 'Analysis',
             description: aiResponse.explanation,
@@ -2480,7 +2478,7 @@ function buildChartConfig(
             }
 
             encodings.push({
-                id: uuidv4(),
+                id: generateId(),
                 field,
                 channel: enc.channel,
                 aggregate,
@@ -2505,7 +2503,7 @@ function buildChartConfig(
             const defaultX = getDefaultXField();
             if (defaultX && !encodings.some(e => e.field.id === defaultX.id)) {
                 encodings.push({
-                    id: uuidv4(),
+                    id: generateId(),
                     field: defaultX,
                     channel: 'x',
                 });
@@ -2516,7 +2514,7 @@ function buildChartConfig(
             const defaultY = getDefaultYField();
             if (defaultY && !encodings.some(e => e.field.id === defaultY.id)) {
                 encodings.push({
-                    id: uuidv4(),
+                    id: generateId(),
                     field: defaultY,
                     channel: 'y',
                     aggregate: defaultY.type === 'quantitative' ? 'sum' : undefined,
@@ -2531,7 +2529,7 @@ function buildChartConfig(
         const quantField = fields.find(f => f.type === 'quantitative');
         if (quantField) {
             encodings.push({
-                id: uuidv4(),
+                id: generateId(),
                 field: quantField,
                 channel: 'theta' as EncodingChannel,
                 aggregate: 'sum',
@@ -2540,7 +2538,7 @@ function buildChartConfig(
     }
 
     return {
-        id: uuidv4(),
+        id: generateId(),
         mark: aiResponse?.mark || 'bar',
         encodings,
         title: aiResponse?.title ? sanitizeOutput(aiResponse.title) : undefined,
@@ -2717,11 +2715,11 @@ Respond with ONLY valid JSON:
 
         // Build a grouped bar chart for the comparison
         const chartConfig: ChartConfig = {
-            id: uuidv4(),
+            id: generateId(),
             mark: 'bar',
             encodings: [
-                { id: uuidv4(), field: groupField, channel: 'x' as EncodingChannel },
-                { id: uuidv4(), field: metricField, channel: 'y' as EncodingChannel, aggregate: comparisonSpec.aggregate },
+                { id: generateId(), field: groupField, channel: 'x' as EncodingChannel },
+                { id: generateId(), field: metricField, channel: 'y' as EncodingChannel, aggregate: comparisonSpec.aggregate },
             ],
             title: `${metricField.name}: ${parsed.groupValues[0]} vs ${parsed.groupValues[1]}`,
             width: 'container',
@@ -2809,11 +2807,11 @@ Respond with ONLY valid JSON:
 
         // Create a line chart config for the base data
         const chartConfig: ChartConfig = {
-            id: uuidv4(),
+            id: generateId(),
             mark: 'line',
             encodings: [
-                { id: uuidv4(), field: temporalField, channel: 'x' as EncodingChannel },
-                { id: uuidv4(), field: metricField, channel: 'y' as EncodingChannel, aggregate: 'sum' },
+                { id: generateId(), field: temporalField, channel: 'x' as EncodingChannel },
+                { id: generateId(), field: metricField, channel: 'y' as EncodingChannel, aggregate: 'sum' },
             ],
             title: `${metricField.name} Forecast (${forecastResult.periods} periods)`,
             width: 'container',
@@ -2926,7 +2924,7 @@ Respond with a JSON array (and ONLY the JSON array):
         const aiInsights = JSON.parse(jsonMatch[0]);
         return aiInsights.map((insight: Omit<DataInsight, 'id'>) => ({
             ...insight,
-            id: uuidv4(),
+            id: generateId(),
         }));
 
     } catch (error) {

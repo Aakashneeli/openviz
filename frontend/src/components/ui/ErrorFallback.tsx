@@ -4,7 +4,6 @@
 
 import { AlertTriangle, RefreshCw, Bug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 
 interface ErrorFallbackProps {
   error: Error;
@@ -126,7 +125,7 @@ ${error.stack || 'No stack trace available'}
           </div>
 
           {/* Dev Info */}
-          {process.env.NODE_ENV === 'development' && error.stack && (
+          {import.meta.env.DEV && error.stack && (
             <details className="mt-4">
               <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
                 Show stack trace (dev only)

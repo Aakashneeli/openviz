@@ -168,3 +168,8 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 10. `Phase 1 / Task 4 - Fix invalid ECharts treemap typing`: **Completed**
 - Removed unsupported `breadcrumb.textStyle` usage in treemap option generation and replaced it with a typed-safe `emphasis.itemStyle` configuration.
 - Outcome: treemap `SeriesOption` type mismatch error is resolved in frontend build type-checking.
+11. `Phase 1 / Task 5 - Compile config boundary hardening`: **Completed**
+- Removed explicit `../backend` inclusion from `frontend/tsconfig.app.json` so backend files are no longer pulled in by default app-compile scope.
+- Replaced backend `uuid` package usage with an internal `generateId()` helper (`backend/utils/id.ts`) to remove cross-package module resolution failures from frontend-driven type checks.
+- Cleared remaining TypeScript blockers found on this path (unused locals in annotation/refresh/error-fallback paths).
+- Outcome: TypeScript build now clears compile-time errors and proceeds to Vite bundling; current build stop is environment dependency (`@rollup/rollup-linux-x64-gnu` missing in local `frontend/node_modules`).

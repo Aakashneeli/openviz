@@ -83,7 +83,7 @@ export function detectOutliers(
  */
 export function detectExtremes(
   data: number[],
-  fieldName: string,
+  _fieldName: string,
   xAxisData?: (string | number)[]
 ): Annotation[] {
   if (data.length === 0) return [];
@@ -184,7 +184,6 @@ export function calculateTrendLine(
   const sumY = yData.reduce((a, b) => a + b, 0);
   const sumXY = xData.reduce((sum, x, i) => sum + x * yData[i], 0);
   const sumX2 = xData.reduce((sum, x) => sum + x * x, 0);
-  const sumY2 = yData.reduce((sum, y) => sum + y * y, 0);
 
   const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
   const intercept = (sumY - slope * sumX) / n;

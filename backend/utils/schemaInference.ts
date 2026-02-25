@@ -3,8 +3,8 @@
 // Detects column types and generates statistics
 // ============================================
 
-import { v4 as uuidv4 } from 'uuid';
 import { parse, isValid } from 'date-fns';
+import { generateId } from './id';
 import type {
     FieldInfo,
     FieldType,
@@ -56,7 +56,7 @@ export function inferSchema(
         const sparklineData = generateSparklineData(values, type, stats);
 
         return {
-            id: uuidv4(),
+            id: generateId(),
             name: columnName,
             type,
             semanticType,

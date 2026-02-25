@@ -9,7 +9,7 @@ import type {
     ChartRecommendation,
     MarkType,
 } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { generateId } from '../utils/id';
 
 /**
  * Score type compatibility between two fields for visualization
@@ -220,7 +220,7 @@ export function generateRecommendations(
             const reason = generateReason(xField, yField, mark);
 
             candidates.push({
-                id: uuidv4(),
+                id: generateId(),
                 mark,
                 xField: xField.name,
                 yField: yField.name,

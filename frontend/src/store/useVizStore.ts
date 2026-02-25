@@ -2127,15 +2127,6 @@ export const useVizStore = create<VizState & VizActions>()(
                             format: 'auto',
                         });
 
-                        // Convert to CSV and reload via existing pipeline
-                        const Papa = await import('papaparse');
-                        const csvContent = Papa.default.unparse(result.data);
-                        const blob = new Blob([csvContent], { type: 'text/csv' });
-                        const file = new File([blob], `${result.name}.csv`, { type: 'text/csv' });
-
-                        // Save dashboard config before reload (loadDataFromFile clears it)
-                        const dashboardConfig = get().dashboardConfig;
-
                         // Re-infer schema and update dataset without clearing dashboard
                         const fields = inferSchema(result.data);
                         const dataset: Dataset = {
