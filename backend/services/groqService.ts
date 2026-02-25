@@ -50,6 +50,13 @@ const INITIAL_RETRY_DELAY = 1000; // 1 second
 
 let lastTransportName: string | null = null;
 
+class AIConfigurationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'AIConfigurationError';
+    }
+}
+
 function isLocalDevHost(): boolean {
     if (!import.meta.env.DEV || typeof window === 'undefined') {
         return false;
@@ -67,8 +74,14 @@ function canUseInsecureDirectAI(): boolean {
 }
 
 function getDirectModeDisabledError(): Error {
-    return new Error(
+    return new AIConfigurationError(
         'Direct browser AI mode is disabled. Configure VITE_AI_PROXY_URL (recommended) or set VITE_ALLOW_INSECURE_DIRECT_AI=true for localhost development only.'
+    );
+}
+
+function getMissingDirectProviderError(): Error {
+    return new AIConfigurationError(
+        'Direct AI mode is enabled but no provider keys are configured. Set VITE_GROQ_API_KEY/VITE_OPENAI_API_KEY/VITE_ANTHROPIC_API_KEY or configure VITE_AI_PROXY_URL.'
     );
 }
 
@@ -98,6 +111,10 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
             }
 
             if (canUseInsecureDirectAI()) {
+                if (!isAnyProviderAvailable()) {
+                    throw getMissingDirectProviderError();
+                }
+
                 // Use provider manager with automatic fallback across providers
                 const manager = getProviderManager();
                 return await manager.chat(request);
@@ -106,6 +123,10 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
             throw getDirectModeDisabledError();
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
+
+            if (lastError instanceof AIConfigurationError) {
+                throw lastError;
+            }
 
             // Don't retry on client errors (4xx) - except 429 which is rate limit
             if ((lastError.message.includes('400') ||
@@ -217,6 +238,10 @@ function getStreamingGenerator(request: ChatCompletionRequest): AsyncGenerator<s
 
     if (!canUseInsecureDirectAI()) {
         throw getDirectModeDisabledError();
+    }
+
+    if (!isAnyProviderAvailable()) {
+        throw getMissingDirectProviderError();
     }
 
     // Use provider manager with automatic fallback

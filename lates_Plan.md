@@ -180,3 +180,7 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 13. `Phase 0 / Task 3 - Controlled dev-only direct mode flag`: **Completed**
 - Added `frontend/.env.example` with secure defaults and explicit `VITE_ALLOW_INSECURE_DIRECT_AI=false`.
 - Outcome: direct browser mode is now explicitly opt-in with a clear default for local configuration.
+14. `Phase 2 / Task 4 - Environment contract hardening`: **Completed**
+- Added root `.env.example` with proxy-first defaults and insecure direct-mode values documented as commented local-only options.
+- Hardened AI env/runtime validation in `backend/services/groqService.ts` with fail-fast configuration errors (no retry loop on invalid direct-mode setup).
+- Outcome: missing/invalid AI environment configuration now fails predictably with actionable error messages.
