@@ -165,3 +165,6 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Added `SupportedMarkType` in shared types and updated Vega-Lite mapping paths to use supported-mark fallbacks instead of exhaustive `Record<MarkType, ...>` maps.
 - Updated `autoChart` description handling to gracefully describe advanced marks without forcing unsupported Vega-Lite mappings.
 - Outcome: previous compile failures for incomplete `MarkType` mapping in `autoChart` and `vegaSpecBuilder` are resolved.
+10. `Phase 1 / Task 4 - Fix invalid ECharts treemap typing`: **Completed**
+- Removed unsupported `breadcrumb.textStyle` usage in treemap option generation and replaced it with a typed-safe `emphasis.itemStyle` configuration.
+- Outcome: treemap `SeriesOption` type mismatch error is resolved in frontend build type-checking.

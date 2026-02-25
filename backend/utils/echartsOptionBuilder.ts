@@ -610,7 +610,13 @@ function buildTreemapOption(config: ChartConfig, data: DataRecord[]): EChartsOpt
             type: 'treemap',
             data: treemapData,
             roam: false,
-            breadcrumb: { show: true, itemStyle: { color: '#27272a' }, textStyle: { color: '#d4d4d8' } },
+            breadcrumb: {
+                show: true,
+                itemStyle: { color: '#27272a' },
+                emphasis: {
+                    itemStyle: { color: '#3f3f46' },
+                },
+            },
             label: { show: true, color: '#fff', fontSize: 12 },
             itemStyle: { borderColor: '#18181b', borderWidth: 2, gapWidth: 2 },
             levels: [
