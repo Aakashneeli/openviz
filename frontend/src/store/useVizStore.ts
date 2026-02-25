@@ -473,7 +473,6 @@ export const useVizStore = create<VizState & VizActions>()(
                         dataProfile: generateDataProfile(data, fields),
                         uploadStatus: { state: 'complete', progress: 100 },
                         encodings: [],
-                        vegaSpec: null,
                         savedDashboards: [],
                         dashboardConfig: null,
                         viewMode: 'single',
@@ -537,7 +536,6 @@ export const useVizStore = create<VizState & VizActions>()(
                     dataset,
                     uploadStatus: { state: 'complete', progress: 100 },
                     encodings: [],
-                    vegaSpec: null,
                     drillPath: [],
                     drillHierarchies: hierarchies,
                     drillActiveField: null,
@@ -549,7 +547,6 @@ export const useVizStore = create<VizState & VizActions>()(
                     dataset: null,
                     uploadStatus: { state: 'idle', progress: 0 },
                     encodings: [],
-                    vegaSpec: null,
                     aiSuggestions: [],
                     aiInsights: [],
                 });

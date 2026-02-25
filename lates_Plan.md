@@ -144,3 +144,7 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 1. `Phase 1 / Task 1 - Fix hook ordering in DashboardGrid`: **Completed**
 - Moved hook-dependent declarations above early returns and removed conditional `useCallback` usage by promoting `formatTimeAgo` to a top-level utility function.
 - Updated dashboard title effect dependency to remove the remaining hook dependency warning signal.
+2. `Task 1 push to GitHub`: **Blocker**
+- Push failed in this environment due Git credential/auth setup (`credential-manager` unavailable and no GitHub username/token available for HTTPS push).
+3. `Phase 1 / Task 2 - Resolve vegaSpec field drift`: **Completed**
+- Removed stale `vegaSpec: null` assignments from the active store and legacy data slice so state updates now align with the current `echartsOption` model.

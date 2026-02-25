@@ -146,7 +146,6 @@ export const createDataSlice = (set: StoreSet, get: StoreGet) => ({
                 dataProfile: generateDataProfile(data, fields),
                 uploadStatus: { state: 'complete', progress: 100 },
                 encodings: [],
-                vegaSpec: null,
                 savedDashboards: [],
                 dashboardConfig: null,
                 viewMode: 'single',
@@ -210,7 +209,6 @@ export const createDataSlice = (set: StoreSet, get: StoreGet) => ({
             dataset,
             uploadStatus: { state: 'complete', progress: 100 },
             encodings: [],
-            vegaSpec: null,
             drillPath: [],
             drillHierarchies: hierarchies,
             drillActiveField: null,
@@ -222,7 +220,6 @@ export const createDataSlice = (set: StoreSet, get: StoreGet) => ({
             dataset: null,
             uploadStatus: { state: 'idle', progress: 0 },
             encodings: [],
-            vegaSpec: null,
             aiSuggestions: [],
             aiInsights: [],
         });
