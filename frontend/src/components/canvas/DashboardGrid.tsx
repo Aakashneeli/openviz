@@ -2,7 +2,7 @@
 // DashboardGrid - Multi-Chart Display with Controls
 // ============================================
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, Maximize2, Activity, Trash2, Copy, Edit3, Plus, LayoutGrid, LayoutTemplate, Pencil, Check, Sparkles, MessageSquare, ChevronDown, FileDown, Loader2, FileText, Share2, Filter, RefreshCw, Clock, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,23 @@ function applyCrossFiltersToData(
             return true;
         });
     });
+}
+
+const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
+    { label: 'Off', value: null },
+    { label: '1 min', value: 60000 },
+    { label: '5 min', value: 300000 },
+    { label: '15 min', value: 900000 },
+    { label: '1 hour', value: 3600000 },
+];
+
+function formatTimeAgo(date: Date | null | undefined): string {
+    if (!date) return '';
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 interface DashboardChartProps {
@@ -438,7 +455,7 @@ export function DashboardGrid() {
         if (dashboard) {
             setEditTitle(dashboard.title || 'Untitled Dashboard');
         }
-    }, [dashboard?.title]);
+    }, [dashboard]);
 
     // Auto-refresh interval
     useEffect(() => {
@@ -453,6 +470,9 @@ export function DashboardGrid() {
 
         return () => clearInterval(timer);
     }, [dashboard?.refreshInterval, dataSource, refreshDashboardData]);
+
+    const canRefresh = dataSource && (dataSource.type === 'url' || dataSource.type === 'google-sheets');
+    const lastUpdatedTime = lastRefreshedAt || dataSource?.lastFetchedAt;
 
     // Time-ago display with periodic re-render
     const [, setTick] = useState(0);
@@ -539,26 +559,6 @@ export function DashboardGrid() {
         resetChart();
         useVizStore.setState({ viewMode: 'single', editingChartId: null });
     };
-
-    const canRefresh = dataSource && (dataSource.type === 'url' || dataSource.type === 'google-sheets');
-    const lastUpdatedTime = lastRefreshedAt || dataSource?.lastFetchedAt;
-
-    const formatTimeAgo = useCallback((date: Date | null | undefined) => {
-        if (!date) return '';
-        const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-        if (seconds < 60) return 'just now';
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
-    }, []);
-
-    const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
-        { label: 'Off', value: null },
-        { label: '1 min', value: 60000 },
-        { label: '5 min', value: 300000 },
-        { label: '15 min', value: 900000 },
-        { label: '1 hour', value: 3600000 },
-    ];
 
     const handleChartClick = (chartId: string, field: string, value: string | number) => {
         setCrossFilter({
