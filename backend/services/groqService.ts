@@ -174,6 +174,10 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
  * Call AI via secure proxy (production)
  */
 async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    if (!AI_PROXY_URL) {
+        throw getDirectModeDisabledError();
+    }
+
     const response = await fetch(AI_PROXY_URL, {
         method: 'POST',
         headers: buildProxyHeaders(),
@@ -202,6 +206,10 @@ async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompleti
  * Returns an async generator that yields text chunks
  */
 async function* callAIStreamingProxy(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
+    if (!AI_PROXY_URL) {
+        throw getDirectModeDisabledError();
+    }
+
     const response = await fetch(AI_PROXY_URL, {
         method: 'POST',
         headers: buildProxyHeaders(),

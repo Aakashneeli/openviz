@@ -8,10 +8,7 @@
         "noEmit": true,
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true,
-        "forceConsistentCasingInFileNames": true,
-        "types": [
-            "vite/client"
-        ]
+        "forceConsistentCasingInFileNames": true
     },
     "include": [
         "services",
