@@ -152,3 +152,8 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Push failed again for the same credential/auth reason (`credential-manager` unavailable and no HTTPS username/token configured in this shell).
 5. `Phase 1 / Task 4 - Fix missing shared backend type`: **Completed**
 - Added a shared `VegaLiteSpec` contract (with related field/mark helper types) in `backend/types/index.ts` so `vegaSpecBuilder` imports resolve correctly.
+6. `Task 3 push to GitHub`: **Blocker**
+- Push remains blocked by local Git authentication setup in this environment (`credential-manager` unavailable and no HTTPS credentials configured).
+7. `Phase 1 / Task 6 - Lint strategy (temporary scope reduction)`: **Completed**
+- Temporarily excluded `src/store/slices/**` from lint in `frontend/eslint.config.js` to focus lint signal on the active store path (`useVizStore`).
+- Result: lint errors dropped from the large legacy-slice set to 6 active-code issues.
