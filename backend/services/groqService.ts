@@ -41,6 +41,7 @@ import type { ChatMessage, ChatCompletionRequest, ChatCompletionResponse } from 
 
 // AI Proxy URL - In production, this should point to your Cloudflare Worker
 const AI_PROXY_URL = import.meta.env.VITE_AI_PROXY_URL;
+const AI_PROXY_AUTH_TOKEN = import.meta.env.VITE_AI_PROXY_AUTH_TOKEN;
 const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'meta-llama/llama-4-maverick-17b-128e-instruct';
 const ALLOW_INSECURE_DIRECT_AI = import.meta.env.VITE_ALLOW_INSECURE_DIRECT_AI === 'true';
 
@@ -83,6 +84,23 @@ function getMissingDirectProviderError(): Error {
     return new AIConfigurationError(
         'Direct AI mode is enabled but no provider keys are configured. Set VITE_GROQ_API_KEY/VITE_OPENAI_API_KEY/VITE_ANTHROPIC_API_KEY or configure VITE_AI_PROXY_URL.'
     );
+}
+
+function getMissingProxyAuthTokenError(): Error {
+    return new AIConfigurationError(
+        'Proxy AI mode requires VITE_AI_PROXY_AUTH_TOKEN. Set it to the same app token configured on the worker (APP_AUTH_TOKEN).'
+    );
+}
+
+function buildProxyHeaders(): Record<string, string> {
+    if (!AI_PROXY_AUTH_TOKEN) {
+        throw getMissingProxyAuthTokenError();
+    }
+
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AI_PROXY_AUTH_TOKEN}`,
+    };
 }
 
 // ============================================
@@ -158,9 +176,7 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
 async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
     const response = await fetch(AI_PROXY_URL, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: buildProxyHeaders(),
         body: JSON.stringify({ ...request, model: AI_MODEL }),
     });
 
@@ -188,7 +204,7 @@ async function callAIProxy(request: ChatCompletionRequest): Promise<ChatCompleti
 async function* callAIStreamingProxy(request: ChatCompletionRequest): AsyncGenerator<string, void, unknown> {
     const response = await fetch(AI_PROXY_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildProxyHeaders(),
         body: JSON.stringify({ ...request, stream: true }),
     });
 
@@ -3206,7 +3222,7 @@ Respond with ONLY JSON:
 
 export function isAIAvailable(): boolean {
     if (Boolean(AI_PROXY_URL)) {
-        return true;
+        return Boolean(AI_PROXY_AUTH_TOKEN);
     }
 
     return canUseInsecureDirectAI() && isAnyProviderAvailable();
@@ -3225,7 +3241,7 @@ export function getLastProviderName(): string | null {
 }
 
 export function getAvailableProviderNames(): string[] {
-    if (Boolean(AI_PROXY_URL)) {
+    if (Boolean(AI_PROXY_URL) && Boolean(AI_PROXY_AUTH_TOKEN)) {
         return ['Proxy'];
     }
 

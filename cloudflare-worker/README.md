@@ -5,6 +5,7 @@ This Cloudflare Worker securely proxies AI requests to the Groq API, keeping API
 ## Features
 
 - **API Key Security**: API key stored as a Worker secret (never exposed to browser)
+- **App Token Auth**: Requires an app-level bearer token for every proxy request
 - **Rate Limiting**: 100 requests/hour per IP (configurable)
 - **CORS Support**: Configured for your frontend domain
 - **Retry Hints**: Returns `Retry-After` header on rate limits
@@ -28,11 +29,14 @@ Edit `wrangler.toml` to set your production domain:
 vars = { ALLOWED_ORIGIN = "https://your-production-domain.com" }
 ```
 
-### 3. Set API Key Secret
+### 3. Set Required Secrets
 
 ```bash
 # Set the Groq API key as a secret (it will prompt for the value)
 npx wrangler secret put GROQ_API_KEY
+
+# Set the app-level auth token used by frontend requests
+npx wrangler secret put APP_AUTH_TOKEN
 ```
 
 ### 4. (Optional) Set Up KV for Rate Limiting
@@ -65,6 +69,7 @@ After deploying, update your frontend `.env`:
 
 ```env
 VITE_AI_PROXY_URL=https://openviz-ai-proxy.your-subdomain.workers.dev
+VITE_AI_PROXY_AUTH_TOKEN=your_openviz_proxy_auth_token_here
 ```
 
 ## Configuration
@@ -72,6 +77,7 @@ VITE_AI_PROXY_URL=https://openviz-ai-proxy.your-subdomain.workers.dev
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GROQ_API_KEY` | (required) | Your Groq API key (set via `wrangler secret`) |
+| `APP_AUTH_TOKEN` | (required) | Shared app auth token sent as `Authorization: Bearer <token>` |
 | `ALLOWED_ORIGIN` | `http://localhost:5173` | CORS allowed origin |
 | `RATE_LIMIT_REQUESTS` | `100` | Max requests per window |
 | `RATE_LIMIT_WINDOW_HOURS` | `1` | Rate limit window in hours |
@@ -81,6 +87,11 @@ VITE_AI_PROXY_URL=https://openviz-ai-proxy.your-subdomain.workers.dev
 ### POST /
 
 Proxies chat completion requests to Groq API.
+
+**Required Header:**
+```http
+Authorization: Bearer <APP_AUTH_TOKEN>
+```
 
 **Request Body:**
 ```json
@@ -115,5 +126,6 @@ The frontend will automatically fall back to direct Groq API calls.
 **429 Too Many Requests**: Wait for rate limit to reset or increase `RATE_LIMIT_REQUESTS`.
 
 **500 Server Configuration Error**: Ensure `GROQ_API_KEY` secret is set.
+Also ensure `APP_AUTH_TOKEN` is set.
 
 **CORS Error**: Check `ALLOWED_ORIGIN` matches your frontend URL exactly.

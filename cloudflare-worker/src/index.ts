@@ -11,6 +11,7 @@
 
 interface Env {
     GROQ_API_KEY: string;
+    APP_AUTH_TOKEN: string;
     ALLOWED_ORIGIN: string;
     RATE_LIMIT_REQUESTS: string;
     RATE_LIMIT_WINDOW_HOURS: string;
@@ -141,6 +142,29 @@ function errorResponse(
 }
 
 /**
+ * Validate app-level proxy token before forwarding provider requests
+ */
+function validateAppAuth(request: Request, env: Env): { valid: true } | { valid: false; status: number; message: string } {
+    const expectedToken = env.APP_AUTH_TOKEN?.trim();
+    if (!expectedToken) {
+        console.error('APP_AUTH_TOKEN not configured');
+        return { valid: false, status: 500, message: 'Server configuration error' };
+    }
+
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return { valid: false, status: 401, message: 'Missing authorization token' };
+    }
+
+    const providedToken = authHeader.slice('Bearer '.length).trim();
+    if (!providedToken || providedToken !== expectedToken) {
+        return { valid: false, status: 401, message: 'Invalid authorization token' };
+    }
+
+    return { valid: true };
+}
+
+/**
  * Validate the incoming chat request
  */
 function validateRequest(body: unknown): body is ChatRequest {
@@ -249,6 +273,11 @@ export default {
             return errorResponse('Server configuration error', 500, env);
         }
 
+        const authResult = validateAppAuth(request, env);
+        if (!authResult.valid) {
+            return errorResponse(authResult.message, authResult.status, env);
+        }
+
         // Check rate limit
         const clientIP = getClientIP(request);
         const rateLimit = await checkRateLimit(clientIP, env);
@@ -274,10 +303,6 @@ export default {
         if (!validateRequest(body)) {
             return errorResponse('Invalid request format', 400, env);
         }
-
-        // Check URL path for different endpoints
-        const url = new URL(request.url);
-        const path = url.pathname;
 
         try {
             // Handle streaming vs non-streaming

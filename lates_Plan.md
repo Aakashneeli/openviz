@@ -184,3 +184,8 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Added root `.env.example` with proxy-first defaults and insecure direct-mode values documented as commented local-only options.
 - Hardened AI env/runtime validation in `backend/services/groqService.ts` with fail-fast configuration errors (no retry loop on invalid direct-mode setup).
 - Outcome: missing/invalid AI environment configuration now fails predictably with actionable error messages.
+15. `Phase 0 / Task 4 - Add proxy request authentication`: **Completed**
+- Added app-level bearer-token validation in the Cloudflare worker (`APP_AUTH_TOKEN`) and reject unauthorized proxy calls with `401`.
+- Updated frontend proxy transport to send `Authorization: Bearer <VITE_AI_PROXY_AUTH_TOKEN>` and fail-fast when proxy auth token is missing.
+- Updated worker/frontend environment templates and worker README to document the new auth contract.
+- Outcome: proxy endpoint now requires app-auth credentials instead of accepting any unauthenticated POST request.
