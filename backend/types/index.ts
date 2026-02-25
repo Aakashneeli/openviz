@@ -180,6 +180,36 @@ export interface ChartConfig {
 }
 
 // ============================================
+// Vega-Lite Types
+// ============================================
+
+export type VegaLiteValueType = 'quantitative' | 'nominal' | 'ordinal' | 'temporal';
+
+export interface VegaLiteFieldDef {
+    field: string;
+    type: VegaLiteValueType;
+    aggregate?: AggregateFunction;
+    bin?: boolean | { maxbins: number };
+    timeUnit?: TimeUnit;
+    sort?: 'ascending' | 'descending' | null;
+    axis?: Record<string, unknown>;
+    legend?: Record<string, unknown>;
+}
+
+export type VegaLiteMark = string | Record<string, unknown>;
+
+export interface VegaLiteSpec {
+    $schema: string;
+    data: { values: DataRecord[] };
+    mark: VegaLiteMark;
+    encoding: Record<string, VegaLiteFieldDef | VegaLiteFieldDef[] | unknown>;
+    width?: number | 'container';
+    height?: number | 'container';
+    title?: string;
+    [key: string]: unknown;
+}
+
+// ============================================
 // ECharts Option (re-export for convenience)
 // ============================================
 
