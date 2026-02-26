@@ -14,18 +14,35 @@ import './index.css';
 
 function App() {
   const importDashboard = useVizStore(state => state.importDashboard);
+  const setDashboardConfig = useVizStore(state => state.setDashboardConfig);
+  const setViewMode = useVizStore(state => state.setViewMode);
 
   // Check for shared dashboard state in URL on mount
   useEffect(() => {
     const sharedState = getSharedStateFromURL();
     if (sharedState) {
       try {
-        const { dashboard, dataset } = decompressDashboardState(sharedState);
-        importDashboard(dashboard, dataset);
+        const { dashboard, dataset, includeDataset } = decompressDashboardState(sharedState);
+
+        if (dataset) {
+          importDashboard(dashboard, dataset);
+        } else {
+          // SharePayloadV2 can intentionally omit raw dataset for privacy.
+          setDashboardConfig(dashboard);
+          setViewMode('dashboard');
+        }
+
         clearShareStateFromURL();
-        toast.success('Shared dashboard loaded', {
-          description: `${dashboard.charts.length} charts loaded from shared link`,
-        });
+
+        if (includeDataset) {
+          toast.success('Shared dashboard loaded', {
+            description: `${dashboard.charts.length} charts loaded from shared link`,
+          });
+        } else {
+          toast.success('Shared dashboard layout loaded', {
+            description: 'Dataset was excluded from this link. Load data to render chart values.',
+          });
+        }
       } catch (err) {
         console.error('Failed to load shared dashboard:', err);
         clearShareStateFromURL();

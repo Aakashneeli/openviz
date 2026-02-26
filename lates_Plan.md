@@ -253,12 +253,23 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
   - `npm run typecheck --prefix backend` passed
   - `./backend/node_modules/.bin/tsc --noEmit -p packages/shared/tsconfig.json` passed
 - Outcome: AI transport behavior now has a strict interface contract and is no longer coupled to direct provider/proxy conditionals inside `groqService`.
+26. `Remaining Work Order / Item 1 - SharePayloadV2`: **Completed**
+- Upgraded share links to `SharePayloadV2` in `frontend/src/services/shareService.ts` with `includeDataset` privacy control and optional dataset payload.
+- Added backward-compatible decompression that supports both legacy V1 payloads and V2 payloads.
+- Updated dashboard sharing UX in `DashboardGrid` to offer:
+  - Share with dataset
+  - Share layout only (private)
+- Updated app bootstrap share import flow in `App.tsx` so config-only links load dashboard layout without requiring raw dataset transfer.
+- Verification:
+  - `npm run lint --prefix frontend` passed
+  - `npm run build --prefix frontend` passed
+  - `npm run typecheck --prefix backend` passed
+- Outcome: users can now share dashboard structure without exposing source data, while existing shared links remain importable.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-2. Add automated tests (smoke + security + mark-mapping regression coverage).
-3. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-4. Complete remaining `Phase 3` product features:
+1. Add automated tests (smoke + security + mark-mapping regression coverage).
+2. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+3. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots

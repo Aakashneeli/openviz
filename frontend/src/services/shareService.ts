@@ -6,25 +6,50 @@
 import LZString from 'lz-string';
 import type { DashboardConfig, Dataset } from '@backend/types';
 
-interface SharePayload {
+interface SharePayloadV1 {
     v: 1;
     d: DashboardConfig;
     ds: Dataset;
 }
 
+interface SharePayloadV2 {
+    v: 2;
+    d: DashboardConfig;
+    includeDataset: boolean;
+    ds?: Dataset;
+}
+
+type SharePayload = SharePayloadV1 | SharePayloadV2;
+
+export interface ShareOptions {
+    includeDataset?: boolean;
+}
+
+export interface DecompressedShareState {
+    dashboard: DashboardConfig;
+    dataset: Dataset | null;
+    includeDataset: boolean;
+    version: 1 | 2;
+}
+
 const MAX_URL_LENGTH = 32000; // Safe URL length limit
 
 /**
- * Compress dashboard + dataset into a URL-safe string
+ * Compress dashboard state into a URL-safe string.
+ * V2 payload supports dataset privacy controls.
  */
 export function compressDashboardState(
     dashboard: DashboardConfig,
     dataset: Dataset,
+    options: ShareOptions = {},
 ): string {
-    const payload: SharePayload = {
-        v: 1,
+    const includeDataset = options.includeDataset ?? true;
+
+    const payload: SharePayloadV2 = {
+        v: 2,
         d: dashboard,
-        ds: dataset,
+        includeDataset,
+        ...(includeDataset ? { ds: dataset } : {}),
     };
 
     const json = JSON.stringify(payload);
@@ -32,13 +57,25 @@ export function compressDashboardState(
     return compressed;
 }
 
+function reviveDashboardDates(dashboard: DashboardConfig): DashboardConfig {
+    return {
+        ...dashboard,
+        createdAt: new Date(dashboard.createdAt),
+    };
+}
+
+function reviveDatasetDates(dataset: Dataset): Dataset {
+    return {
+        ...dataset,
+        uploadedAt: new Date(dataset.uploadedAt),
+    };
+}
+
 /**
- * Decompress a URL-safe string back into dashboard + dataset
+ * Decompress a URL-safe string back into dashboard state.
+ * Supports backward-compatible V1 and V2 payloads.
  */
-export function decompressDashboardState(compressed: string): {
-    dashboard: DashboardConfig;
-    dataset: Dataset;
-} {
+export function decompressDashboardState(compressed: string): DecompressedShareState {
     const json = LZString.decompressFromEncodedURIComponent(compressed);
     if (!json) {
         throw new Error('Failed to decompress shared dashboard data');
@@ -46,29 +83,46 @@ export function decompressDashboardState(compressed: string): {
 
     const payload = JSON.parse(json) as SharePayload;
 
-    if (!payload.d || !payload.ds) {
-        throw new Error('Invalid shared dashboard format');
+    // Backward compatibility: V1 always includes dataset.
+    if ((payload as SharePayloadV1).v === 1) {
+        const legacy = payload as SharePayloadV1;
+        if (!legacy.d || !legacy.ds) {
+            throw new Error('Invalid shared dashboard format (v1)');
+        }
+
+        return {
+            version: 1,
+            includeDataset: true,
+            dashboard: reviveDashboardDates(legacy.d),
+            dataset: reviveDatasetDates(legacy.ds),
+        };
     }
 
-    // Revive Date objects
-    payload.d.createdAt = new Date(payload.d.createdAt);
-    payload.ds.uploadedAt = new Date(payload.ds.uploadedAt);
+    const current = payload as SharePayloadV2;
+    if (!current.d) {
+        throw new Error('Invalid shared dashboard format (v2)');
+    }
+
+    const includeDataset = current.includeDataset ?? Boolean(current.ds);
 
     return {
-        dashboard: payload.d,
-        dataset: payload.ds,
+        version: 2,
+        includeDataset,
+        dashboard: reviveDashboardDates(current.d),
+        dataset: current.ds ? reviveDatasetDates(current.ds) : null,
     };
 }
 
 /**
- * Generate a shareable URL for the current dashboard
- * Returns the URL string and whether the dataset was too large
+ * Generate a shareable URL for the current dashboard.
+ * Returns the URL string and whether it is very large.
  */
 export function generateShareURL(
     dashboard: DashboardConfig,
     dataset: Dataset,
+    options: ShareOptions = {},
 ): { url: string; tooLarge: boolean } {
-    const compressed = compressDashboardState(dashboard, dataset);
+    const compressed = compressDashboardState(dashboard, dataset, options);
     const baseUrl = window.location.origin + window.location.pathname;
     const url = `${baseUrl}?state=${compressed}`;
 

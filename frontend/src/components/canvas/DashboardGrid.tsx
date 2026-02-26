@@ -428,14 +428,16 @@ export function DashboardGrid() {
         }
     };
 
-    const handleShareLink = async () => {
+    const handleShareLink = async (includeDataset: boolean) => {
         if (!dashboard || !dataset) return;
         try {
-            const { url, tooLarge } = generateShareURL(dashboard, dataset);
+            const { url, tooLarge } = generateShareURL(dashboard, dataset, { includeDataset });
             const copied = await copyToClipboard(url);
             if (copied) {
-                toast.success('Share link copied to clipboard', {
-                    description: tooLarge ? 'Warning: URL is very long — some browsers may truncate it' : undefined,
+                toast.success(includeDataset ? 'Share link copied to clipboard' : 'Private share link copied', {
+                    description: tooLarge
+                        ? 'Warning: URL is very long — some browsers may truncate it'
+                        : (includeDataset ? undefined : 'Dataset excluded. Recipients will see dashboard layout only.'),
                 });
             } else {
                 toast.error('Failed to copy link');
@@ -798,17 +800,29 @@ export function DashboardGrid() {
                         <FileText className="h-3 w-3 mr-1.5" />
                         Report
                     </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleShareLink}
-                        disabled={dashboard.charts.length === 0}
-                        className="h-7 text-xs bg-white/5 border-white/10 hover:bg-cyan-500/20 hover:border-cyan-500/30 text-slate-300"
-                        title="Copy shareable link"
-                    >
-                        <Share2 className="h-3 w-3 mr-1.5" />
-                        Share
-                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={dashboard.charts.length === 0}
+                                className="h-7 text-xs bg-white/5 border-white/10 hover:bg-cyan-500/20 hover:border-cyan-500/30 text-slate-300"
+                                title="Copy shareable link"
+                            >
+                                <Share2 className="h-3 w-3 mr-1.5" />
+                                Share
+                                <ChevronDown className="h-3 w-3 ml-1" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuItem onClick={() => handleShareLink(true)} className="text-xs">
+                                Share with dataset
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleShareLink(false)} className="text-xs">
+                                Share layout only (private)
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button
