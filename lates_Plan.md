@@ -243,13 +243,22 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
   - `npm run build --prefix frontend` passed
   - `npm run typecheck --prefix backend` passed
 - Outcome: frontend compile/runtime graph is now isolated from direct backend path imports and consumes shared/browser-safe modules through `packages/shared`.
+25. `Remaining Work Order / Item 1 - Phase 2 / Task 3`: **Completed**
+- Added explicit AI transport interface in `packages/shared/src/services/aiClient.ts` with strict `AIClient.request(...)` and `AIClient.stream(...)` methods.
+- Refactored `packages/shared/src/services/groqService.ts` to consume the AI client abstraction for both request and streaming flows, including existing retry behavior and configuration error handling.
+- Centralized transport availability/provider reporting behind the AI client layer (`isAIClientAvailable`, `getLastAIProviderName`, `getAvailableAIProviderNames`).
+- Verification:
+  - `npm run lint --prefix frontend` passed
+  - `npm run build --prefix frontend` passed
+  - `npm run typecheck --prefix backend` passed
+  - `./backend/node_modules/.bin/tsc --noEmit -p packages/shared/tsconfig.json` passed
+- Outcome: AI transport behavior now has a strict interface contract and is no longer coupled to direct provider/proxy conditionals inside `groqService`.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
-2. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-3. Add automated tests (smoke + security + mark-mapping regression coverage).
-4. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-5. Complete remaining `Phase 3` product features:
+1. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+2. Add automated tests (smoke + security + mark-mapping regression coverage).
+3. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+4. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots
