@@ -226,15 +226,22 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Deleted legacy unused slice-based store files under `frontend/src/store/slices/` to align lint scope with the active `useVizStore` architecture.
 - Verification: `npm run lint --prefix frontend` passes with no temporary legacy-slice ignore.
 - Outcome: lint now enforces all active frontend code paths without legacy exceptions.
+23. `Remaining Work Order / Item 3 - Phase 2 / Task 1`: **Completed**
+- Introduced `packages/shared` as the canonical shared-contract package with `src/types/index.ts`, package metadata, and standalone typecheck config.
+- Migrated backend type surface to re-export from shared contracts via `backend/types/index.ts`, establishing shared contracts as the source of truth.
+- Added `@shared/*` path aliases in frontend TS/Vite config to support cross-package shared-contract imports.
+- Verification:
+  - `npm run typecheck --prefix backend` passed
+  - `./backend/node_modules/.bin/tsc --noEmit -p packages/shared/tsconfig.json` passed
+- Outcome: shared TypeScript contracts now exist as an explicit package boundary instead of living only under `backend/types`.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
-2. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
-3. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
-4. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-5. Add automated tests (smoke + security + mark-mapping regression coverage).
-6. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-7. Complete remaining `Phase 3` product features:
+1. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
+2. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
+3. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+4. Add automated tests (smoke + security + mark-mapping regression coverage).
+5. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+6. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots
