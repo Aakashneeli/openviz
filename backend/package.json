@@ -4,6 +4,9 @@
     "version": "0.0.0",
     "type": "module",
     "description": "OpenViz backend services and shared logic (bundled with frontend)",
+    "scripts": {
+        "typecheck": "tsc --noEmit"
+    },
     "dependencies": {
         "arquero": "^8.0.3",
         "date-fns": "^4.1.0",
