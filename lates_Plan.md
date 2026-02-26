@@ -221,16 +221,20 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
   - `npm run build --prefix frontend` passed
   - `npm run typecheck --prefix backend` passed
 - Outcome: CI gate coverage is now codified for lint + typecheck + build paths and secret hygiene checks.
+22. `Remaining Work Order / Item 2 - Phase 1 / Task 6 follow-up`: **Completed**
+- Removed temporary lint bypass in `frontend/eslint.config.js` by dropping the `src/store/slices/**` ignore.
+- Deleted legacy unused slice-based store files under `frontend/src/store/slices/` to align lint scope with the active `useVizStore` architecture.
+- Verification: `npm run lint --prefix frontend` passes with no temporary legacy-slice ignore.
+- Outcome: lint now enforces all active frontend code paths without legacy exceptions.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. Complete `Phase 1 / Task 6` follow-up: remove temporary `src/store/slices/**` lint ignore by deleting legacy slices or fully migrating to slice-based store.
-2. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
-3. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
-4. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
-5. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-6. Add automated tests (smoke + security + mark-mapping regression coverage).
-7. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-8. Complete remaining `Phase 3` product features:
+1. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
+2. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
+3. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
+4. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+5. Add automated tests (smoke + security + mark-mapping regression coverage).
+6. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+7. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots
