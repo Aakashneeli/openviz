@@ -274,10 +274,21 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Integrated the suite into CI via the `automated-tests` workflow job in `.github/workflows/ci.yml`.
 - Verification: `npm test` now passes end-to-end in this environment.
 - Outcome: regression checks now run automatically for smoke, security, and mark-mapping coverage without requiring additional test framework installs.
+28. `Remaining Work Order / Item 1 - Phase 3 / Task 1`: **Completed**
+- Added AI observability contracts in shared types (`AIQueryObservation`, `AIQueryTokenUsage`) and extended `AIQueryResult` with optional observability metadata fields.
+- Added token-usage capture in `packages/shared/src/services/groqService.ts` and exposed it via `getLastTokenUsage()`.
+- Instrumented `processAIQuery` in `frontend/src/store/useVizStore.ts` to record per-query observability entries:
+  - intent
+  - provider
+  - latency
+  - token usage (when available)
+  - failure reason
+- Added bounded observability history (`aiQueryObservability`) to store state and surfaced the latest metrics in `AIChat`.
+- Verification: `npm test` passed (includes lint/build/typecheck smoke + regression suite).
+- Outcome: AI query/result telemetry is now captured and visible in-app for debugging and quality analysis.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-2. Complete remaining `Phase 3` product features:
+1. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots

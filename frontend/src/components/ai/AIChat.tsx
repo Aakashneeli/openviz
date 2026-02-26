@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CodePreview } from '@/components/ui/CodePreview';
-import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode, selectAIStreamingMessageId } from '@/store/useVizStore';
+import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode, selectAIStreamingMessageId, selectAIQueryObservability } from '@/store/useVizStore';
 import { isAIAvailable, getAvailableProviderNames } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,6 +28,7 @@ export function AIChat() {
     const { processAIQuery, retryLastQuery, setMessageFeedback } = useVizStore();
     const lastFailedQuery = useVizStore(state => state.lastFailedQuery);
     const streamingMessageId = useVizStore(selectAIStreamingMessageId);
+    const aiQueryObservability = useVizStore(selectAIQueryObservability);
 
     // Chart focus context
     const aiFocusedChartId = useVizStore(state => state.aiFocusedChartId);
@@ -132,6 +133,10 @@ export function AIChat() {
         return 'Ask OpenViz...';
     }, [canSubmit, focusedChart, viewMode]);
 
+    const latestObservation = aiQueryObservability.length > 0
+        ? aiQueryObservability[aiQueryObservability.length - 1]
+        : null;
+
     return (
         <AnimatePresence mode="wait">
             {!isOpen ? (
@@ -226,6 +231,32 @@ export function AIChat() {
                         <div className="px-4 py-2 bg-blue-500/10 border-b border-blue-500/20 flex items-center gap-2 text-xs text-blue-400">
                             <AlertCircle className="w-3 h-3" />
                             Upload data to use AI
+                        </div>
+                    )}
+                    {latestObservation && (
+                        <div
+                            className={cn(
+                                'px-3 py-1.5 border-b text-[10px] flex items-center gap-1.5',
+                                latestObservation.success
+                                    ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300/80'
+                                    : 'bg-rose-500/5 border-rose-500/20 text-rose-300/80',
+                            )}
+                        >
+                            <span>{latestObservation.intent}</span>
+                            <span>·</span>
+                            <span>{latestObservation.provider || 'unknown provider'}</span>
+                            <span>·</span>
+                            <span>{latestObservation.latencyMs}ms</span>
+                            <span>·</span>
+                            <span>{latestObservation.tokenUsage?.totalTokens ?? 0} tokens</span>
+                            {!latestObservation.success && latestObservation.failureReason && (
+                                <>
+                                    <span>·</span>
+                                    <span className="truncate" title={latestObservation.failureReason}>
+                                        {latestObservation.failureReason}
+                                    </span>
+                                </>
+                            )}
                         </div>
                     )}
 

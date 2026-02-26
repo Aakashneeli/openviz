@@ -24,6 +24,7 @@ import type {
     DataInsight,
     DataProfile,
     AIMessage,
+    AIQueryObservation,
     DashboardConfig,
     SavedDashboard,
     ChartSummary,
@@ -120,6 +121,7 @@ interface VizState {
     aiSuggestions: ChartSuggestion[];
     aiInsights: DataInsight[];
     aiChatHistory: AIMessage[];
+    aiQueryObservability: AIQueryObservation[];
 
     // Summary State
     chartSummary: ChartSummary | null;
@@ -371,6 +373,7 @@ const initialState: VizState = {
     aiSuggestions: [],
     aiInsights: [],
     aiChatHistory: [],
+    aiQueryObservability: [],
     aiChatOpen: false,
     aiFocusedChartId: null,
 
@@ -860,6 +863,34 @@ export const useVizStore = create<VizState & VizActions>()(
                     return;
                 }
 
+                const queryStartedAt = new Date();
+                const queryStartMs = Date.now();
+                const recordObservation = (params: {
+                    intent: AIQueryObservation['intent'];
+                    provider?: string;
+                    success: boolean;
+                    failureReason?: string;
+                    tokenUsage?: AIQueryObservation['tokenUsage'];
+                }) => {
+                    const completedAt = new Date();
+                    const observation: AIQueryObservation = {
+                        id: uuidv4(),
+                        query,
+                        intent: params.intent,
+                        provider: params.provider,
+                        startedAt: queryStartedAt,
+                        completedAt,
+                        latencyMs: completedAt.getTime() - queryStartMs,
+                        success: params.success,
+                        failureReason: params.failureReason,
+                        tokenUsage: params.tokenUsage,
+                    };
+
+                    set((state) => ({
+                        aiQueryObservability: [...state.aiQueryObservability, observation].slice(-200),
+                    }));
+                };
+
                 set({ aiLoading: true, aiQuery: query });
 
                 // Add user message to chat history
@@ -873,7 +904,7 @@ export const useVizStore = create<VizState & VizActions>()(
 
                 try {
                     // Use the streaming AI service for real-time text responses
-                    const { processAIQueryStreaming } = await import('@backend/services/groqService');
+                    const { processAIQueryStreaming, getLastTokenUsage } = await import('@backend/services/groqService');
                     const { dashboardConfig, chartConfig, aiFocusedChartId } = get();
 
                     // If chat is focused on a specific chart in a dashboard, use that chart's context
@@ -934,6 +965,7 @@ export const useVizStore = create<VizState & VizActions>()(
                         aiFocusedChartId,
                         onChunk
                     );
+                    const tokenUsage = getLastTokenUsage() || undefined;
 
                     // If the response was streamed, finalize the streaming state
                     if (result.streamed && result.textAnswer) {
@@ -1137,6 +1169,14 @@ export const useVizStore = create<VizState & VizActions>()(
                         set({ aiInsights: result.insights });
                     }
 
+                    recordObservation({
+                        intent: result.intent,
+                        provider: result.provider,
+                        success: !result.error,
+                        failureReason: result.error,
+                        tokenUsage,
+                    });
+
                     // Clear last failed query on success
                     set({ lastFailedQuery: null });
 
@@ -1177,6 +1217,12 @@ export const useVizStore = create<VizState & VizActions>()(
                     // Show error toast with retry hint
                     toast.error('AI query failed', {
                         description: 'Click "Retry" in the chat to try again.',
+                    });
+
+                    recordObservation({
+                        intent: 'unknown',
+                        success: false,
+                        failureReason: errorMsg,
                     });
                 } finally {
                     set({ aiLoading: false, aiStreamingMessageId: null, aiStreamingText: '' });
@@ -2453,6 +2499,7 @@ export const selectAIChatHistory = (state: VizState) => state.aiChatHistory ?? E
 export const selectAIStreamingMessageId = (state: VizState) => state.aiStreamingMessageId;
 export const selectAIStreamingText = (state: VizState) => state.aiStreamingText;
 export const selectAIInsights = (state: VizState) => state.aiInsights;
+export const selectAIQueryObservability = (state: VizState) => state.aiQueryObservability;
 
 // Summary Selectors
 export const selectChartSummary = (state: VizState) => state.chartSummary;

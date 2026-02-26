@@ -274,6 +274,12 @@ export interface AIQueryResult {
     deleteChart?: boolean;
     /** Which AI provider fulfilled this request */
     provider?: string;
+    /** End-to-end latency observed by caller */
+    latencyMs?: number;
+    /** Token usage metadata when available */
+    tokenUsage?: AIQueryTokenUsage;
+    /** Failure reason for observability pipelines */
+    failureReason?: string;
 }
 
 /** AI intent classification */
@@ -305,6 +311,25 @@ export interface AIMessage {
     feedback?: 'positive' | 'negative';
     /** Which AI provider generated this response */
     provider?: string;
+}
+
+export interface AIQueryTokenUsage {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+}
+
+export interface AIQueryObservation {
+    id: string;
+    query: string;
+    intent: AIIntent;
+    provider?: string;
+    startedAt: Date;
+    completedAt: Date;
+    latencyMs: number;
+    success: boolean;
+    failureReason?: string;
+    tokenUsage?: AIQueryTokenUsage;
 }
 
 // ============================================

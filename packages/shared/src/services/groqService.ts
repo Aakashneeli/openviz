@@ -21,6 +21,7 @@ import type {
     AggregateFunction,
     FilterSpec,
     ComparisonSpec,
+    AIQueryTokenUsage,
 } from '../types';
 import { generateId } from '../utils/id';
 import { executeDataQuery, formatProfileForLLM } from './dataContextService';
@@ -43,6 +44,19 @@ import {
 // Retry configuration
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
+let lastTokenUsage: AIQueryTokenUsage | null = null;
+
+function normalizeTokenUsage(
+    usage: ChatCompletionResponse['usage'] | undefined,
+): AIQueryTokenUsage | null {
+    if (!usage) return null;
+
+    return {
+        promptTokens: usage.prompt_tokens ?? 0,
+        completionTokens: usage.completion_tokens ?? 0,
+        totalTokens: usage.total_tokens ?? 0,
+    };
+}
 
 // ============================================
 // AI Call with Retry Logic & Provider Fallback
@@ -65,7 +79,9 @@ async function callAI(request: ChatCompletionRequest): Promise<ChatCompletionRes
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
             const aiClient = getAIClient();
-            return await aiClient.request(request);
+            const response = await aiClient.request(request);
+            lastTokenUsage = normalizeTokenUsage(response.usage);
+            return response;
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
 
@@ -119,6 +135,9 @@ export async function streamAITextResponse(
     onChunk: (chunk: string, accumulated: string) => void,
     options: { temperature?: number; maxTokens?: number } = {}
 ): Promise<string> {
+    // Streaming provider responses typically do not include token usage metadata.
+    lastTokenUsage = null;
+
     const request: ChatCompletionRequest = {
         messages: [{ role: 'user', content: prompt }],
         temperature: options.temperature ?? 0.5,
@@ -149,6 +168,9 @@ export async function streamAIChatResponse(
     onChunk: (chunk: string, accumulated: string) => void,
     options: { temperature?: number; maxTokens?: number } = {}
 ): Promise<string> {
+    // Streaming provider responses typically do not include token usage metadata.
+    lastTokenUsage = null;
+
     const request: ChatCompletionRequest = {
         messages,
         temperature: options.temperature ?? 0.5,
@@ -3074,5 +3096,9 @@ export function getLastProviderName(): string | null {
 
 export function getAvailableProviderNames(): string[] {
     return getAvailableAIProviderNames();
+}
+
+export function getLastTokenUsage(): AIQueryTokenUsage | null {
+    return lastTokenUsage;
 }
 
