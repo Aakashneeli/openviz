@@ -265,11 +265,19 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
   - `npm run build --prefix frontend` passed
   - `npm run typecheck --prefix backend` passed
 - Outcome: users can now share dashboard structure without exposing source data, while existing shared links remain importable.
+27. `Remaining Work Order / Item 1 - Automated tests`: **Completed**
+- Added an automated regression suite under `scripts/tests/` with explicit coverage for:
+  - `security-regression.sh`: secret hygiene audit + worker auth/origin enforcement checks
+  - `mark-mapping-regression.sh`: supported mark contract + fallback mapping assertions
+  - `smoke-gates.sh`: frontend lint/build + backend/shared typecheck smoke gates
+- Added orchestrator `scripts/tests/run-all.sh` and wired root `npm test` to execute the full suite.
+- Integrated the suite into CI via the `automated-tests` workflow job in `.github/workflows/ci.yml`.
+- Verification: `npm test` now passes end-to-end in this environment.
+- Outcome: regression checks now run automatically for smoke, security, and mark-mapping coverage without requiring additional test framework installs.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. Add automated tests (smoke + security + mark-mapping regression coverage).
-2. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-3. Complete remaining `Phase 3` product features:
+1. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+2. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots
