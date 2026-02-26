@@ -234,14 +234,22 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
   - `npm run typecheck --prefix backend` passed
   - `./backend/node_modules/.bin/tsc --noEmit -p packages/shared/tsconfig.json` passed
 - Outcome: shared TypeScript contracts now exist as an explicit package boundary instead of living only under `backend/types`.
+24. `Remaining Work Order / Item 1 - Phase 2 / Task 2`: **Completed**
+- Enforced strict frontend/backend boundary by remapping frontend `@backend/*` alias to `packages/shared/src/*` (instead of `backend/*`) in TS + Vite config.
+- Moved frontend-used backend modules into `packages/shared/src/services` and `packages/shared/src/utils` so browser code no longer resolves directly from the `backend/` tree.
+- Added `@shared/*` alias support and lint enforcement (`no-restricted-imports`) to block direct filesystem backend imports from frontend code.
+- Verification:
+  - `npm run lint --prefix frontend` passed
+  - `npm run build --prefix frontend` passed
+  - `npm run typecheck --prefix backend` passed
+- Outcome: frontend compile/runtime graph is now isolated from direct backend path imports and consumes shared/browser-safe modules through `packages/shared`.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
-2. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
-3. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-4. Add automated tests (smoke + security + mark-mapping regression coverage).
-5. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-6. Complete remaining `Phase 3` product features:
+1. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
+2. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+3. Add automated tests (smoke + security + mark-mapping regression coverage).
+4. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+5. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots

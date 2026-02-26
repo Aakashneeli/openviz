@@ -33,11 +33,11 @@
             "@/*": [
                 "./src/*"
             ],
-            "@shared/*": [
+            "@backend/*": [
                 "../packages/shared/src/*"
             ],
-            "@backend/*": [
-                "../backend/*"
+            "@shared/*": [
+                "../packages/shared/src/*"
             ]
         }
     },

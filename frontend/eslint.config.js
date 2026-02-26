@@ -19,5 +19,15 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          '../backend/*',
+          '../../backend/*',
+          '../../../backend/*',
+          'backend/*',
+        ],
+      }],
+    },
   },
 ])
