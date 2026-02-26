@@ -468,6 +468,25 @@ export interface DashboardConfig {
     refreshInterval?: RefreshInterval;
 }
 
+export interface DashboardSnapshot {
+    id: string;
+    name: string;
+    createdAt: Date;
+    dashboard: DashboardConfig;
+}
+
+export interface SemanticMetricDefinition {
+    id: string;
+    name: string;
+    expression: string;
+    description?: string;
+}
+
+export interface SemanticModel {
+    fieldAliases: Record<string, string[]>;
+    metrics: SemanticMetricDefinition[];
+}
+
 /** Saved dashboard wrapper with metadata */
 export interface SavedDashboard {
     id: string;           // same as DashboardConfig.id

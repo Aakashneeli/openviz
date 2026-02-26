@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DashboardSummaryPanel } from '@/components/canvas/DashboardSummaryPanel';
 import { ReportGenerator } from '@/components/report/ReportGenerator';
-import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading, selectCrossFilters, selectCrossFilterEnabled, selectDataSource, selectIsRefreshing, selectLastRefreshedAt } from '@/store/useVizStore';
+import { useVizStore, selectDashboardConfig, selectDataset, selectDashboardSummary, selectSummaryLoading, selectCrossFilters, selectCrossFilterEnabled, selectDataSource, selectIsRefreshing, selectLastRefreshedAt, selectLastRefreshStatus, selectLastRefreshError, selectLastRefreshLatencyMs, selectDashboardSnapshots } from '@/store/useVizStore';
 import { buildEChartsOption } from '@backend/utils/echartsOptionBuilder';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -343,10 +343,17 @@ export function DashboardGrid() {
     const dataSource = useVizStore(selectDataSource);
     const isRefreshing = useVizStore(selectIsRefreshing);
     const lastRefreshedAt = useVizStore(selectLastRefreshedAt);
+    const lastRefreshStatus = useVizStore(selectLastRefreshStatus);
+    const lastRefreshError = useVizStore(selectLastRefreshError);
+    const lastRefreshLatencyMs = useVizStore(selectLastRefreshLatencyMs);
+    const dashboardSnapshots = useVizStore(selectDashboardSnapshots);
     const {
         deleteDashboard,
         closeDashboard,
         renameDashboard,
+        createDashboardSnapshot,
+        restoreDashboardSnapshot,
+        deleteDashboardSnapshot,
         removeChartFromDashboard,
         duplicateChartInDashboard,
         editChartFromDashboard,
@@ -448,6 +455,23 @@ export function DashboardGrid() {
         }
     };
 
+    const handleCreateSnapshot = () => {
+        if (!dashboard) return;
+        const name = window.prompt('Snapshot name', `${dashboard.title || 'Dashboard'} checkpoint`);
+        createDashboardSnapshot(name || undefined);
+        toast.success('Dashboard snapshot saved');
+    };
+
+    const handleRestoreSnapshot = (snapshotId: string) => {
+        restoreDashboardSnapshot(snapshotId);
+        toast.success('Dashboard snapshot restored');
+    };
+
+    const handleDeleteSnapshot = (snapshotId: string) => {
+        deleteDashboardSnapshot(snapshotId);
+        toast.success('Dashboard snapshot deleted');
+    };
+
     useEffect(() => {
         const timer = setTimeout(() => setIsLoading(false), 800);
         return () => clearTimeout(timer);
@@ -475,6 +499,9 @@ export function DashboardGrid() {
 
     const canRefresh = dataSource && (dataSource.type === 'url' || dataSource.type === 'google-sheets');
     const lastUpdatedTime = lastRefreshedAt || dataSource?.lastFetchedAt;
+    const staleThresholdMs = dashboard?.refreshInterval ? Math.max(dashboard.refreshInterval * 2, 10 * 60 * 1000) : 15 * 60 * 1000;
+    const lastUpdatedAgeMs = lastUpdatedTime ? Date.now() - new Date(lastUpdatedTime).getTime() : null;
+    const isStale = lastUpdatedAgeMs !== null ? lastUpdatedAgeMs > staleThresholdMs : false;
 
     // Time-ago display with periodic re-render
     const [, setTick] = useState(0);
@@ -788,6 +815,40 @@ export function DashboardGrid() {
                                     {formatTimeAgo(lastUpdatedTime)}
                                 </span>
                             )}
+                            {lastUpdatedTime && (
+                                <span
+                                    className={cn(
+                                        'text-[10px] px-1.5 py-0.5 rounded border',
+                                        isStale
+                                            ? 'text-rose-300 border-rose-500/30 bg-rose-500/10'
+                                            : 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10',
+                                    )}
+                                    title={isStale ? 'Data may be stale. Refresh recommended.' : 'Data is fresh.'}
+                                >
+                                    {isStale ? 'Stale' : 'Fresh'}
+                                </span>
+                            )}
+                            <span
+                                className={cn(
+                                    'text-[10px] px-1.5 py-0.5 rounded border',
+                                    lastRefreshStatus === 'error'
+                                        ? 'text-rose-300 border-rose-500/30 bg-rose-500/10'
+                                        : lastRefreshStatus === 'success'
+                                            ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+                                            : 'text-slate-400 border-white/10 bg-white/5',
+                                )}
+                                title={lastRefreshStatus === 'error'
+                                    ? `Last refresh failed: ${lastRefreshError || 'Unknown error'}`
+                                    : lastRefreshLatencyMs
+                                        ? `Last refresh latency: ${lastRefreshLatencyMs}ms`
+                                        : 'Refresh health unknown'}
+                            >
+                                {lastRefreshStatus === 'error'
+                                    ? 'Refresh error'
+                                    : lastRefreshStatus === 'success'
+                                        ? 'Refresh healthy'
+                                        : 'Refresh idle'}
+                            </span>
                         </div>
                     )}
                     <Button
@@ -800,6 +861,51 @@ export function DashboardGrid() {
                         <FileText className="h-3 w-3 mr-1.5" />
                         Report
                     </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!dashboard}
+                                className="h-7 text-xs bg-white/5 border-white/10 hover:bg-violet-500/20 hover:border-violet-500/30 text-slate-300"
+                                title="Dashboard snapshots"
+                            >
+                                <Copy className="h-3 w-3 mr-1.5" />
+                                Snapshots
+                                <ChevronDown className="h-3 w-3 ml-1" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem onClick={handleCreateSnapshot} className="text-xs">
+                                Save Snapshot
+                            </DropdownMenuItem>
+                            {dashboardSnapshots.length === 0 && (
+                                <DropdownMenuItem disabled className="text-xs text-slate-500">
+                                    No snapshots yet
+                                </DropdownMenuItem>
+                            )}
+                            {dashboardSnapshots.slice().reverse().map(snapshot => (
+                                <DropdownMenuItem
+                                    key={snapshot.id}
+                                    onClick={() => handleRestoreSnapshot(snapshot.id)}
+                                    className="text-xs flex items-center justify-between gap-2"
+                                >
+                                    <span className="truncate">{snapshot.name}</span>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSnapshot(snapshot.id);
+                                        }}
+                                        className="text-[10px] text-rose-300 hover:text-rose-200"
+                                        title="Delete snapshot"
+                                    >
+                                        Del
+                                    </button>
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button

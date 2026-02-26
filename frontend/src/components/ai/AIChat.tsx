@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CodePreview } from '@/components/ui/CodePreview';
-import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode, selectAIStreamingMessageId, selectAIQueryObservability } from '@/store/useVizStore';
+import { useVizStore, selectDataset, selectAILoading, selectAIChatHistory, selectDashboardConfig, selectViewMode, selectAIStreamingMessageId, selectAIQueryObservability, selectAIPreviewMode, selectAIPendingAction } from '@/store/useVizStore';
 import { isAIAvailable, getAvailableProviderNames } from '@backend/services/groqService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 export function AIChat() {
     // Use store state for visibility
     const isOpen = useVizStore(state => state.aiChatOpen);
-    const { setAIChatOpen, clearChatFocus } = useVizStore();
+    const { setAIChatOpen, clearChatFocus, setAIPreviewMode, applyPendingAIAction, discardPendingAIAction } = useVizStore();
     const [query, setQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -29,6 +29,8 @@ export function AIChat() {
     const lastFailedQuery = useVizStore(state => state.lastFailedQuery);
     const streamingMessageId = useVizStore(selectAIStreamingMessageId);
     const aiQueryObservability = useVizStore(selectAIQueryObservability);
+    const aiPreviewMode = useVizStore(selectAIPreviewMode);
+    const aiPendingAction = useVizStore(selectAIPendingAction);
 
     // Chart focus context
     const aiFocusedChartId = useVizStore(state => state.aiFocusedChartId);
@@ -183,14 +185,30 @@ export function AIChat() {
                                 </span>
                             </div>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={handleClose}
-                            className="h-6 w-6 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
-                        >
-                            <Minimize2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setAIPreviewMode(!aiPreviewMode)}
+                                className={cn(
+                                    'h-6 px-2 text-[10px] rounded-full',
+                                    aiPreviewMode
+                                        ? 'text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/10',
+                                )}
+                                title="Toggle AI action preview mode"
+                            >
+                                Preview
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleClose}
+                                className="h-6 w-6 text-slate-400 hover:text-white hover:bg-white/10 rounded-full"
+                            >
+                                <Minimize2 className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Chart Focus Banner */}
@@ -257,6 +275,31 @@ export function AIChat() {
                                     </span>
                                 </>
                             )}
+                        </div>
+                    )}
+                    {aiPendingAction && (
+                        <div className="px-3 py-2 border-b border-violet-500/20 bg-violet-500/10">
+                            <p className="text-[11px] text-violet-200 mb-2">
+                                AI preview ready. Review changes before applying.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={applyPendingAIAction}
+                                    className="h-6 text-[10px] bg-emerald-500/10 border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/20"
+                                >
+                                    Apply
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={discardPendingAIAction}
+                                    className="h-6 text-[10px] bg-rose-500/10 border-rose-500/30 text-rose-200 hover:bg-rose-500/20"
+                                >
+                                    Discard
+                                </Button>
+                            </div>
                         </div>
                     )}
 

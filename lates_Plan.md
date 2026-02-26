@@ -286,10 +286,24 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Added bounded observability history (`aiQueryObservability`) to store state and surfaced the latest metrics in `AIChat`.
 - Verification: `npm test` passed (includes lint/build/typecheck smoke + regression suite).
 - Outcome: AI query/result telemetry is now captured and visible in-app for debugging and quality analysis.
+29. `Remaining Work Order / Item 1 - Phase 3 / Tasks 2-6`: **Completed**
+- Implemented AI action preview mode in `useVizStore` + `AIChat`:
+  - new preview state (`aiPreviewMode`, `aiPendingAction`)
+  - apply/discard controls before mutating chart/dashboard state
+  - extracted internal apply path (`_applyAIResultInternal`) to support preview commit workflow
+- Added semantic model layer contracts and store support:
+  - shared types: `SemanticModel`, `SemanticMetricDefinition`
+  - store actions for field aliases and semantic metrics management
+  - semantic query preprocessing to map aliases and append metric context before AI execution
+- Added dashboard version snapshots:
+  - shared type: `DashboardSnapshot`
+  - snapshot create/restore/delete actions in store
+  - snapshot management controls in dashboard toolbar
+- Added data freshness UX + refresh health telemetry:
+  - store tracks refresh status/error/latency/attempt time
+  - dashboard toolbar shows fresh/stale badge and refresh health badge
+- Verification: `npm test` passed (security regression + mark-mapping + lint/build/typecheck smoke).
+- Outcome: all remaining Phase 3 product improvements from this plan are implemented and validated.
 
 ### Remaining Work Order (Updated 2026-02-26)
-1. Complete remaining `Phase 3` product features:
-- AI action preview mode
-- semantic model layer
-- dashboard version snapshots
-- data freshness UX improvements
+1. No pending tasks remain in this plan.
