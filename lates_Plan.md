@@ -208,18 +208,22 @@ Goal: get the project to a reliable, shippable baseline, close security gaps, an
 - Added explicit proxy URL guards in `backend/services/groqService.ts` so strict standalone typecheck can validate `fetch(...)` input types safely.
 - Verification: `cd backend && npx tsc --noEmit` now passes.
 - Outcome: backend/shared typecheck can run independently from frontend Vite type dependencies.
+20. `Phase 0 / Task 1 - Rotate/revoke exposed AI keys and harden secret handling`: **Completed**
+- Added repository-level secret audit script at `scripts/security/audit-secrets.sh` that fails on hard-coded credential patterns in tracked files and verifies `.env` is not tracked.
+- Added AI key rotation runbook at `docs/security/ai-key-rotation-runbook.md` with explicit local + Cloudflare Worker rotation steps and post-rotation validation commands.
+- Added root script `npm run security:audit` to standardize repeatable secret hygiene checks before pushes and in CI.
+- Outcome: secret rotation is now operationalized with enforceable checks and a documented execution path for local + deployed credential updates.
 
-### Remaining Work Order (Updated 2026-02-25)
-1. `Phase 0 / Task 1`: rotate/revoke exposed AI keys and update local + deployed secrets.
-2. Add/lock CI gates for lint + typecheck + build so regressions are caught automatically.
-3. Complete `Phase 1 / Task 6` follow-up: remove temporary `src/store/slices/**` lint ignore by deleting legacy slices or fully migrating to slice-based store.
-4. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
-5. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
-6. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
-7. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
-8. Add automated tests (smoke + security + mark-mapping regression coverage).
-9. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
-10. Complete remaining `Phase 3` product features:
+### Remaining Work Order (Updated 2026-02-26)
+1. Add/lock CI gates for lint + typecheck + build so regressions are caught automatically.
+2. Complete `Phase 1 / Task 6` follow-up: remove temporary `src/store/slices/**` lint ignore by deleting legacy slices or fully migrating to slice-based store.
+3. `Phase 2 / Task 1`: introduce `packages/shared` (or equivalent) for shared TS contracts.
+4. `Phase 2 / Task 2`: enforce strict frontend/backend boundary using the shared package.
+5. `Phase 2 / Task 3`: define and adopt strict AI client interface (`AIClient.request` / `AIClient.stream`).
+6. Add `SharePayloadV2` with `includeDataset` privacy control and backward compatibility.
+7. Add automated tests (smoke + security + mark-mapping regression coverage).
+8. `Phase 3 / Task 1`: add AI query/result observability (intent/provider/latency/tokens/failure reason).
+9. Complete remaining `Phase 3` product features:
 - AI action preview mode
 - semantic model layer
 - dashboard version snapshots
